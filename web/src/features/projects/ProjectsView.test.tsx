@@ -59,7 +59,7 @@ describe("projects screen", () => {
 		await user.click(screen.getByRole("button", { name: "Create project" }));
 
 		expect(
-			await screen.findByRole("heading", { name: "Board" }),
+			await screen.findByRole("heading", { name: "Garden" }),
 		).toBeInTheDocument();
 		const created = db.projects.find((p) => p.name === "Garden");
 		expect(created).toBeDefined();
