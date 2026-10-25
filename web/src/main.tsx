@@ -9,6 +9,17 @@ async function enableMocking() {
 	await worker.start({ onUnhandledFrame: "bypass" });
 }
 
+// Production only: dev and mock mode must not have a caching service worker.
+if (
+	import.meta.env.PROD &&
+	import.meta.env.VITE_MOCK_API !== "true" &&
+	"serviceWorker" in navigator
+) {
+	void import("virtual:pwa-register").then(({ registerSW }) =>
+		registerSW({ immediate: true }),
+	);
+}
+
 const rootElement = document.getElementById("root");
 
 if (!rootElement) {

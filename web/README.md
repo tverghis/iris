@@ -50,3 +50,11 @@ The header has a user switcher fed by `GET /api/users`. The choice is stored in 
 ## UI components
 
 shadcn/ui components live in `src/components/ui/` (configured by `components.json`; the `@/` alias maps to `src/`). Add more with `npx shadcn@latest add <name>`.
+
+## PWA and instant repeat loads
+
+- `vite-plugin-pwa` (generateSW, `autoUpdate`) precaches the app shell and every built JS/CSS chunk and falls back to `index.html` for navigations, except `/api`, `/mcp` and `/healthz`. API responses are never cached by the service worker. The worker is registered in `src/main.tsx` only for production builds that are not mock mode, so dev (and MSW) never see it. Manifest and iOS meta tags are configured in `vite.config.ts` and `index.html`.
+- Icons in `public/` come from `node scripts/gen-icons.mjs` (built-in modules only); the PNGs are committed.
+- `src/api/persistence.ts` persists successful board, project, task and inbox queries to IndexedDB (`idb-keyval`), with a 7-day max age, 24 h `gcTime` and a per-build `buster`. It is skipped in tests and mock mode, and storage errors are swallowed.
+- Production builds inject a tiny inline script into `index.html` that starts `/api/projects/<id>/board` before the JS loads (`window.__irisBoardPrefetch`). `src/features/board/boardPrefetch.ts` lets the board query consume it once if it is for the same project and under 10 s old; otherwise it fetches normally.
+- Needs a real phone: "installed app opens to the last board in under 300 ms" and "Add to home screen" on both phones.

@@ -10,17 +10,19 @@ import { queryKeys } from "@/api/queryKeys";
 import type { Board, Task, TaskCard, TaskStatus, User } from "@/api/types";
 import { toastError } from "@/lib/toast";
 import { moveTaskInColumns, replaceCard } from "./boardModel";
+import { consumeBoardPrefetch } from "./boardPrefetch";
 
 /** Loads the board; `columns` is the seam drag and drop will read and update. */
 export function useBoard(projectId: number) {
 	const query = useQuery({
 		queryKey: queryKeys.projects.board(projectId),
 		queryFn: async () =>
-			(
+			(await consumeBoardPrefetch(projectId)) ??
+			((
 				await api.GET("/api/projects/{id}/board", {
 					params: { path: { id: projectId } },
 				})
-			).data as Board,
+			).data as Board),
 		meta: { silent: true },
 	});
 	return {
