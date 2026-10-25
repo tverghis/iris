@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import { Link, useSearchParams } from "wouter";
 import { ApiError } from "@/api/client";
 import { Button } from "@/components/ui/button";
+import { useProjectStream } from "@/features/live/useProjectStream";
 import { TaskDrawerMount } from "@/features/task/TaskDrawerMount";
 import { useCurrentUserId } from "@/lib/currentUser";
 import { BoardColumn } from "./BoardColumn";
@@ -16,6 +17,7 @@ const FILTERS: { value: BoardFilter; label: string }[] = [
 
 export function BoardView({ projectId }: { projectId: number }) {
 	const { project, columns, isPending, error, refetch } = useBoard(projectId);
+	useProjectStream(projectId);
 	const { data: users } = useUsers();
 	const currentUserId = useCurrentUserId();
 	const [params, setParams] = useSearchParams();

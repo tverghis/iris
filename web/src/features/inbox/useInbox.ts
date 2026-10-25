@@ -35,9 +35,12 @@ function isAddressedTo(entry: InboxEntry, userId: number | null) {
 	return approver === null || approver === userId;
 }
 
+/** The inbox has no stream of its own, so it polls while the page is visible. */
+const POLL_MS = 15_000;
+
 export function useInbox(
 	{ mine }: { mine: boolean },
-	refetchInterval?: number,
+	refetchInterval = POLL_MS,
 ) {
 	const userId = useCurrentUserId();
 	const approvals = useQuery({ ...pendingApprovalsQuery, refetchInterval });

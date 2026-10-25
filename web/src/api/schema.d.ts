@@ -91,9 +91,12 @@ export interface paths {
          * @description `text/event-stream`. Each message has `data:` set to one JSON `StreamEvent`; the SSE `event:` field is
          *     omitted so a plain `onmessage` handler receives everything. Task events carry the full `TaskCard`, so the
          *     client patches that one task in the cache; it never refetches the whole board. `project.updated` carries
-         *     the project. `approval.*`, `comment.*` and `note.*` events carry only ids and mean "refetch that list".
+         *     the project. `approval.changed`, `comment.created`, `note.changed`, `question.changed` and `run.changed`
+         *     carry only ids (`taskId` where it applies) and mean "refetch that list". `task.deleted` carries only `taskId`.
          *     The server may send `:` comment lines as keepalives. On reconnect the client refetches the board.
          *     If SSE is unavailable the client polls the board every 15 seconds.
+         *     The stream is read-only, so it needs no user identity: `EventSource` cannot set the dev-only
+         *     `X-Iris-User` header, the client does not send one, and the server must not require it here.
          */
         get: operations["streamProject"];
         put?: never;
@@ -739,10 +742,10 @@ export interface components {
         /** @description One SSE message `data` payload. */
         StreamEvent: {
             /** @enum {string} */
-            type: "task.created" | "task.updated" | "task.deleted" | "project.updated" | "comment.created" | "approval.changed" | "note.changed";
+            type: "task.created" | "task.updated" | "task.deleted" | "project.updated" | "comment.created" | "approval.changed" | "note.changed" | "question.changed" | "run.changed";
             /** @description Set for task.created and task.updated */
             task?: components["schemas"]["TaskCard"];
-            /** @description Set for task.*, comment.created and approval.changed */
+            /** @description Set for task.*, comment.created, approval.changed and run.changed */
             taskId?: number;
             /** @description Set for project.updated */
             project?: components["schemas"]["Project"];

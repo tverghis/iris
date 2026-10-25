@@ -31,6 +31,7 @@ import {
 	toTask,
 	userActor,
 } from "./db";
+import { publish, publishTask, streamResponse } from "./stream";
 
 const fail = (status: number, message: string) =>
 	HttpResponse.json({ message }, { status });
@@ -49,6 +50,7 @@ function touch(task: StoredTask) {
 	task.updatedAt = now();
 	const project = db.projects.find((p) => p.id === task.projectId);
 	if (project) project.updatedAt = task.updatedAt;
+	publishTask(task);
 }
 
 function columnTasks(projectId: number, status: TaskStatus) {
@@ -217,17 +219,9 @@ export const handlers = [
 		});
 	}),
 
-	http.get("/api/projects/:id/stream", () => {
-		// Keeps the connection open without sending events; the mock never pushes.
-		const stream = new ReadableStream({
-			start(controller) {
-				controller.enqueue(new TextEncoder().encode(": connected\n\n"));
-			},
-		});
-		return new HttpResponse(stream, {
-			headers: { "Content-Type": "text/event-stream" },
-		});
-	}),
+	http.get("/api/projects/:id/stream", ({ params }) =>
+		streamResponse(idOf(params)),
+	),
 
 	http.post("/api/projects/:id/tasks", async ({ params, request }) => {
 		const project = db.projects.find((p) => p.id === idOf(params));
@@ -314,13 +308,15 @@ export const handlers = [
 			note.bodyMd = body.bodyMd;
 		}
 		if (body.pinned !== undefined) note.pinned = body.pinned;
+		publish(note.projectId, { type: "note.changed" });
 		return HttpResponse.json(note);
 	}),
 
 	http.delete("/api/notes/:id", ({ params }) => {
 		const index = db.notes.findIndex((n) => n.id === idOf(params));
 		if (index < 0) return notFound("Note");
-		db.notes.splice(index, 1);
+		const [removed] = db.notes.splice(index, 1);
+		publish(removed.projectId, { type: "note.changed" });
 		return new HttpResponse(null, { status: 204 });
 	}),
 
@@ -686,6 +682,10 @@ export const handlers = [
 		run.endedAt = now();
 		const task = taskById(run.taskId);
 		if (task?.status === "in_progress") setStatus(task, "blocked");
+		if (task) {
+			publish(task.projectId, { type: "run.changed", taskId: task.id });
+			publishTask(task);
+		}
 		return HttpResponse.json(run);
 	}),
 

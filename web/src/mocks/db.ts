@@ -71,6 +71,9 @@ export const userActor = (userId: number): Actor => ({
 });
 export const agentActor: Actor = { kind: "agent", name: "Agent" };
 
+/** Lets the mock stream turn logged activity into SSE messages. */
+export const logListeners = new Set<(event: StoredEvent) => void>();
+
 export function logEvent(
 	projectId: number,
 	taskId: number | null,
@@ -78,7 +81,7 @@ export function logEvent(
 	type: string,
 	data: Record<string, unknown> = {},
 ) {
-	db.events.push({
+	const event: StoredEvent = {
 		id: nextId("events"),
 		projectId,
 		taskId,
@@ -86,7 +89,9 @@ export function logEvent(
 		type,
 		data,
 		createdAt: now(),
-	});
+	};
+	db.events.push(event);
+	for (const listener of logListeners) listener(event);
 }
 
 export function taskById(id: number) {
