@@ -1,6 +1,7 @@
 import { FolderKanban, Inbox } from "lucide-react";
 import { lazy, Suspense } from "react";
 import { Link, useRoute } from "wouter";
+import { useInboxCount } from "@/features/inbox/useInboxCount";
 import { cn } from "@/lib/utils";
 import { AppRoutes } from "@/routes";
 import { DispatcherStatus } from "./DispatcherStatus";
@@ -26,6 +27,17 @@ function NavLink({ to, children }: { to: string; children: React.ReactNode }) {
 	);
 }
 
+function InboxBadge() {
+	const count = useInboxCount();
+	if (count === 0) return null;
+	return (
+		<span className="min-w-5 rounded-full bg-primary px-1.5 text-center text-xs text-primary-foreground">
+			{count}
+			<span className="sr-only"> waiting</span>
+		</span>
+	);
+}
+
 export function AppShell() {
 	return (
 		<div className="flex min-h-dvh flex-col">
@@ -42,6 +54,7 @@ export function AppShell() {
 						<NavLink to="/inbox">
 							<Inbox className="size-4" aria-hidden />
 							<span className="sr-only sm:not-sr-only">Needs you</span>
+							<InboxBadge />
 						</NavLink>
 					</nav>
 					<div className="ml-auto">

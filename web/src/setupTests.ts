@@ -16,6 +16,13 @@ window.matchMedia ??= ((query: string) => ({
 	dispatchEvent: () => false,
 })) as typeof window.matchMedia;
 
+// jsdom has no ResizeObserver (used by Radix checkbox).
+globalThis.ResizeObserver ??= class {
+	observe() {}
+	unobserve() {}
+	disconnect() {}
+};
+
 beforeAll(() => server.listen({ onUnhandledFrame: "error" }));
 
 afterEach(() => {
