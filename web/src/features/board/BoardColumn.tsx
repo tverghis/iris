@@ -5,7 +5,10 @@ import {
 } from "@dnd-kit/sortable";
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
-import type { BoardColumn as BoardColumnData } from "@/api/types";
+import type {
+	BoardColumn as BoardColumnData,
+	TaskCard as TaskCardData,
+} from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -22,6 +25,7 @@ interface Props {
 	column: BoardColumnData;
 	userNames: ReadonlyMap<number, string>;
 	onOpenTask: (taskId: number) => void;
+	onMenuTask?: (task: TaskCardData) => void;
 	/** Stacked mobile layout: the header becomes a toggle for the section. */
 	collapsible?: boolean;
 	collapsed?: boolean;
@@ -33,6 +37,7 @@ export function BoardColumn({
 	column,
 	userNames,
 	onOpenTask,
+	onMenuTask,
 	collapsible = false,
 	collapsed = false,
 	onToggleCollapsed,
@@ -43,7 +48,7 @@ export function BoardColumn({
 	const isDone = status === "done";
 	const tasks = isDone ? sortDone(column.tasks) : column.tasks;
 	const visible = isDone ? tasks.slice(0, limit) : tasks;
-	const { setNodeRef } = useDroppable({ id: columnDropId(status) });
+	const { setNodeRef, isOver } = useDroppable({ id: columnDropId(status) });
 	const isCollapsed = collapsible && collapsed;
 
 	return (
@@ -51,7 +56,10 @@ export function BoardColumn({
 			ref={setNodeRef}
 			aria-label={title}
 			data-status={status}
-			className="flex w-full flex-col rounded-lg bg-muted/50 md:max-h-full md:min-w-[13rem] md:flex-1"
+			className={cn(
+				"flex w-full flex-col rounded-lg bg-muted/50 md:max-h-full md:min-w-[13rem] md:flex-1",
+				isOver && isCollapsed && "ring-2 ring-ring",
+			)}
 		>
 			<h2 className="text-sm font-semibold">
 				{collapsible ? (
@@ -105,6 +113,7 @@ export function BoardColumn({
 									: userNames.get(task.assigneeUserId)
 							}
 							onOpen={onOpenTask}
+							onMenu={onMenuTask}
 						/>
 					))}
 				</SortableContext>

@@ -8,10 +8,23 @@ import {
 	pointerWithin,
 	rectIntersection,
 } from "@dnd-kit/core";
-import { useCallback, useMemo, useState } from "react";
+import {
+	lazy,
+	Suspense,
+	useCallback,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
+import { flushSync } from "react-dom";
 import { Link, useSearchParams } from "wouter";
 import { ApiError } from "@/api/client";
-import type { BoardColumn as BoardColumnData } from "@/api/types";
+import type {
+	BoardColumn as BoardColumnData,
+	TaskCard,
+	TaskStatus,
+} from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { useProjectStream } from "@/features/live/useProjectStream";
 import { TaskDrawerMount } from "@/features/task/TaskDrawerMount";
@@ -20,7 +33,9 @@ import { useIsMobile } from "@/lib/useMediaQuery";
 import { BoardColumn } from "./BoardColumn";
 import {
 	type BoardFilter,
+	columnDropId,
 	columnIds,
+	type DragId,
 	filterColumns,
 	moveTaskInColumns,
 	parseFilter,
@@ -30,6 +45,8 @@ import { useBoardSensors } from "./dndSensors";
 import { TaskCardOverlay } from "./TaskCard";
 import { useBoard, useMoveTask, useUsers } from "./useBoard";
 import { useColumnCollapse } from "./useColumnCollapse";
+
+const MoveToSheet = lazy(() => import("./MoveToSheet"));
 
 const FILTERS: { value: BoardFilter; label: string }[] = [
 	{ value: "mine", label: "Mine" },
@@ -47,6 +64,8 @@ const collisionDetection: CollisionDetection = (args) => {
 
 interface DragState {
 	taskId: number;
+	/** Column the card was picked up from. */
+	source: TaskStatus | undefined;
 	/** Visible columns as previewed while dragging. */
 	columns: BoardColumnData[];
 }
@@ -77,19 +96,74 @@ export function BoardView({ projectId }: { projectId: number }) {
 		? visibleColumns.flatMap((c) => c.tasks).find((t) => t.id === drag.taskId)
 		: undefined;
 
-	const onDragStart = ({ active }: DragStartEvent) =>
-		setDrag({ taskId: Number(active.id), columns: visibleColumns });
+	// Scroll anchoring across a layout change: remember where an element sits,
+	// then restore that position once the new layout has committed.
+	const anchor = useRef<{ selector: string; top: number } | null>(null);
+	const anchorTo = (selector: string) => {
+		const el = document.querySelector(selector);
+		anchor.current = el
+			? { selector, top: el.getBoundingClientRect().top }
+			: null;
+	};
+	// biome-ignore lint/correctness/useExhaustiveDependencies: runs after each drag state change
+	useLayoutEffect(() => {
+		const a = anchor.current;
+		anchor.current = null;
+		const el = a && document.querySelector(a.selector);
+		if (!a || !el) return;
+		const delta = el.getBoundingClientRect().top - a.top;
+		if (delta) window.scrollBy(0, delta);
+	}, [drag?.taskId]);
+
+	const onDragStart = ({ active }: DragStartEvent) => {
+		const taskId = Number(active.id);
+		const source = visibleColumns.find((c) =>
+			c.tasks.some((t) => t.id === taskId),
+		)?.status;
+		if (isMobile && source) {
+			// One layout change: collapse every other column, keep the card put.
+			anchorTo(`[data-task-id="${taskId}"]`);
+			flushSync(() => {
+				setDrag({ taskId, source, columns: visibleColumns });
+				collapse.setExpandedOnly([source]);
+			});
+			return;
+		}
+		setDrag({ taskId, source, columns: visibleColumns });
+	};
+
+	// On a phone every other column is collapsed, so a drop on one goes to the top.
+	const columnDrop = (overId: DragId) =>
+		isMobile && drag?.source && overId !== columnDropId(drag.source)
+			? "top"
+			: "end";
+
+	const endDrag = (landedIn: TaskStatus | undefined) => {
+		if (isMobile && drag) {
+			anchorTo(`section[data-status="${landedIn ?? drag.source}"]`);
+			collapse.setExpandedOnly(null);
+		}
+		setDrag(null);
+	};
 
 	const onDragOver = ({ active, over }: DragOverEvent) => {
-		if (!drag || !over) return;
+		// On a phone the other columns are collapsed headers, so there is no
+		// preview: moving the card out of its column would shift the headers
+		// under the finger.
+		if (!drag || !over || isMobile) return;
 		const taskId = Number(active.id);
-		const plan = resolveDrop(drag.columns, taskId, over.id);
+		const plan = resolveDrop(
+			drag.columns,
+			taskId,
+			over.id,
+			columnDrop(over.id),
+		);
 		const current = drag.columns.find((c) =>
 			c.tasks.some((t) => t.id === taskId),
 		);
 		if (!plan || plan.status === current?.status) return;
 		setDrag({
-			taskId,
+			...drag,
 			columns: moveTaskInColumns(
 				drag.columns,
 				taskId,
@@ -101,10 +175,11 @@ export function BoardView({ projectId }: { projectId: number }) {
 
 	const onDragEnd = ({ active, over }: DragEndEvent) => {
 		const preview = drag?.columns ?? visibleColumns;
-		setDrag(null);
-		if (!over) return;
 		const taskId = Number(active.id);
-		const plan = resolveDrop(preview, taskId, over.id);
+		const plan = over
+			? resolveDrop(preview, taskId, over.id, columnDrop(over.id))
+			: null;
+		endDrag(plan?.status);
 		if (!plan) return;
 		const result = moveTaskInColumns(
 			visibleColumns,
@@ -130,6 +205,9 @@ export function BoardView({ projectId }: { projectId: number }) {
 			},
 			{ replace: true },
 		);
+
+	const [menu, setMenu] = useState<{ task: TaskCard | null } | null>(null);
+	const openMenu = useCallback((task: TaskCard) => setMenu({ task }), []);
 
 	const openTask = useCallback(
 		(taskId: number) =>
@@ -203,7 +281,7 @@ export function BoardView({ projectId }: { projectId: number }) {
 					onDragStart={onDragStart}
 					onDragOver={onDragOver}
 					onDragEnd={onDragEnd}
-					onDragCancel={() => setDrag(null)}
+					onDragCancel={() => endDrag(undefined)}
 				>
 					{shownColumns.map((column) => (
 						<BoardColumn
@@ -212,6 +290,7 @@ export function BoardView({ projectId }: { projectId: number }) {
 							column={column}
 							userNames={userNames}
 							onOpenTask={openTask}
+							onMenuTask={openMenu}
 							collapsible={isMobile}
 							collapsed={collapse.isCollapsed(column.status)}
 							onToggleCollapsed={collapse.toggle}
@@ -232,6 +311,18 @@ export function BoardView({ projectId }: { projectId: number }) {
 					</DragOverlay>
 				</DndContext>
 			</div>
+			{menu && (
+				<Suspense fallback={null}>
+					<MoveToSheet
+						task={menu.task}
+						onClose={() => setMenu({ task: null })}
+						onMove={(task, status) => {
+							setMenu({ task: null });
+							move({ taskId: task.id, status, afterTaskId: null });
+						}}
+					/>
+				</Suspense>
+			)}
 			<TaskDrawerMount projectId={projectId} />
 		</div>
 	);

@@ -25,9 +25,9 @@ function renderBoard(route = "/projects/1") {
 
 const column = (name: string) => screen.getByRole("region", { name });
 const titles = (name: string) =>
-	within(column(name))
-		.queryAllByRole("button", { name: /^(?!Show more)/ })
-		.map((b) => b.querySelector("span")?.textContent);
+	[...column(name).querySelectorAll("[data-task-id]")].map(
+		(b) => b.querySelector("span")?.textContent,
+	);
 
 describe("board", () => {
 	test("renders the six columns matching the API", async () => {
@@ -64,21 +64,21 @@ describe("board", () => {
 	test("cards show assignee, waiting, approval and running indicators", async () => {
 		renderBoard();
 		await screen.findByRole("heading", { name: "Summer trip" });
-		const rent = screen.getByRole("button", { name: /Rent a car/ });
+		const rent = screen.getByRole("button", { name: /^Rent a car/ });
 		expect(within(rent).getByText("Waiting on 1")).toBeInTheDocument();
 		expect(
 			await within(rent).findByLabelText("Assigned to Partner"),
 		).toHaveTextContent("P");
 		const shortlist = screen.getByRole("button", {
-			name: /Shortlist coastal towns/,
+			name: /^Shortlist coastal towns/,
 		});
 		expect(within(shortlist).getByText("Approval")).toBeInTheDocument();
 		expect(
 			within(shortlist).getByLabelText("Assigned to agent"),
 		).toBeInTheDocument();
-		const rail = screen.getByRole("button", { name: /Research rail passes/ });
+		const rail = screen.getByRole("button", { name: /^Research rail passes/ });
 		expect(within(rail).getByText("Running")).toBeInTheDocument();
-		const packing = screen.getByRole("button", { name: /Draft packing list/ });
+		const packing = screen.getByRole("button", { name: /^Draft packing list/ });
 		expect(within(packing).queryByText(/Waiting on/)).toBeNull();
 	});
 
@@ -97,7 +97,7 @@ describe("board", () => {
 		await user.type(input, "Buy sunscreen{Enter}");
 		expect(
 			await within(column("Ready")).findByRole("button", {
-				name: /Buy sunscreen/,
+				name: /^Buy sunscreen/,
 			}),
 		).toBeInTheDocument();
 		expect(input).toHaveValue("");
@@ -149,7 +149,7 @@ describe("board", () => {
 		renderBoard("/projects/1?filter=agent");
 		await screen.findByRole("heading", { name: "Summer trip" });
 		await user.click(
-			screen.getByRole("button", { name: /Research rail passes/ }),
+			screen.getByRole("button", { name: /^Research rail passes/ }),
 		);
 		const id = db.tasks.find((t) => t.title === "Research rail passes")?.id;
 		const search = screen.getByTestId("search");
@@ -261,7 +261,7 @@ describe("board", () => {
 			const user = userEvent.setup();
 			renderBoard();
 			await screen.findByRole("heading", { name: "Summer trip" });
-			const card = screen.getByRole("button", { name: /Draft packing list/ });
+			const card = screen.getByRole("button", { name: /^Draft packing list/ });
 			card.focus();
 			await user.keyboard(" ");
 			await user.keyboard("{ArrowDown}");
@@ -288,7 +288,7 @@ describe("board", () => {
 			const user = userEvent.setup();
 			renderBoard();
 			await screen.findByRole("heading", { name: "Summer trip" });
-			screen.getByRole("button", { name: /Draft packing list/ }).focus();
+			screen.getByRole("button", { name: /^Draft packing list/ }).focus();
 			await user.keyboard("{Enter}");
 			expect(screen.getByTestId("search")).toHaveTextContent("task=");
 		});

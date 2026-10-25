@@ -74,6 +74,8 @@ export function resolveDrop(
 	columns: BoardColumn[],
 	activeId: number,
 	overId: DragId,
+	/** Where a drop on a bare column (not a card) lands; collapsed columns use "top". */
+	columnDrop: "end" | "top" = "end",
 ): DropPlan | null {
 	const overStatus = statusOfDroppable(overId);
 	const target = overStatus
@@ -87,7 +89,12 @@ export function resolveDrop(
 		return source.status === "done" ? null : { status, afterTaskId: null };
 	}
 	const others = target.tasks.filter((t) => t.id !== activeId);
-	if (overStatus) return { status, afterTaskId: others.at(-1)?.id ?? null };
+	if (overStatus) {
+		return {
+			status,
+			afterTaskId: columnDrop === "top" ? null : (others.at(-1)?.id ?? null),
+		};
+	}
 
 	const activeIndex = target.tasks.findIndex((t) => t.id === activeId);
 	if (overId === activeId) {

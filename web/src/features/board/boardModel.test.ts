@@ -45,6 +45,18 @@ const ids = (columns: BoardColumn[], status: TaskStatus) =>
 describe("resolveDrop", () => {
 	const columns = board({ backlog: [1, 2, 3], ready: [4, 5], done: [9] });
 
+	test("a drop on a bare column goes to the end, or the top for collapsed ones", () => {
+		const over = columnDropId("ready");
+		expect(resolveDrop(columns, 1, over)).toEqual({
+			status: "ready",
+			afterTaskId: 5,
+		});
+		expect(resolveDrop(columns, 1, over, "top")).toEqual({
+			status: "ready",
+			afterTaskId: null,
+		});
+	});
+
 	test("reordering down lands after the card dropped on", () => {
 		expect(resolveDrop(columns, 1, 3)).toEqual({
 			status: "backlog",
