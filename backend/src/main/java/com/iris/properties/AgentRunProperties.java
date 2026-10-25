@@ -1,6 +1,7 @@
 package com.iris.properties;
 
 import com.iris.properties.validation.ValidExecutor;
+import com.iris.properties.validation.ValidNotifier;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.net.URI;
@@ -20,7 +21,9 @@ public record AgentRunProperties(
     @Positive @Max(value = 10) long maxAttempts,
     @NotNull @Valid Executor executor,
     @NotNull @Valid Notifier notifier) {
-  public record Dispatch(Duration interval) {}
+
+  public record Dispatch(
+      @NotNull @DurationMin(minutes = 1) @DurationMax(days = 1) Duration interval) {}
 
   public record Lease(
       @NotNull @DurationMin(seconds = 30) @DurationMax(minutes = 10) Duration initialDuration,
@@ -35,6 +38,7 @@ public record AgentRunProperties(
     }
   }
 
+  @ValidNotifier
   public record Notifier(
       @NotNull Type type, List<@NotBlank String> topics, @Valid QuietHours quietHours) {
     public enum Type {
