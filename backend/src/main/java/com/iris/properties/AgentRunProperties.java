@@ -1,5 +1,6 @@
 package com.iris.properties;
 
+import com.iris.properties.validation.ValidExecutor;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.net.URI;
@@ -25,6 +26,7 @@ public record AgentRunProperties(
       @NotNull @DurationMin(seconds = 30) @DurationMax(minutes = 10) Duration initialDuration,
       @NotNull @DurationMin(minutes = 1) @DurationMax(hours = 3) Duration extensionDuration) {}
 
+  @ValidExecutor
   public record Executor(
       @NotNull Type type, URI uri, String secret, String modelIdentifier, String mcpBearerToken) {
     public enum Type {
