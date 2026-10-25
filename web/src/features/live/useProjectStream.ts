@@ -9,6 +9,8 @@ export const BACKOFF_START_MS = 1_000;
 export const BACKOFF_MAX_MS = 30_000;
 /** Consecutive failed connections before the board is polled instead. */
 export const POLL_AFTER_FAILURES = 3;
+/** A connection counts as healthy after its first message or this long open. */
+export const STABLE_MS = 10_000;
 
 /**
  * Keeps one project's board live over SSE. The stream is read-only and needs no
@@ -22,6 +24,7 @@ export function useProjectStream(projectId: number) {
 	useEffect(() => {
 		let source: EventSource | null = null;
 		let retryTimer: ReturnType<typeof setTimeout> | undefined;
+		let stableTimer: ReturnType<typeof setTimeout> | undefined;
 		let pollTimer: ReturnType<typeof setInterval> | undefined;
 		let backoff = BACKOFF_START_MS;
 		let failures = 0;
@@ -35,6 +38,18 @@ export function useProjectStream(projectId: number) {
 				queryKey: queryKeys.projects.board(projectId),
 				exact: true,
 			});
+		};
+		// Events may have been missed: refresh everything the stream keeps current.
+		const resync = () => {
+			refetchBoard();
+			for (const queryKey of [
+				queryKeys.tasks.all,
+				queryKeys.questions.all,
+				queryKeys.approvals.all,
+				queryKeys.projects.lists,
+			]) {
+				void queryClient.invalidateQueries({ queryKey });
+			}
 		};
 
 		const stopPolling = () => {
@@ -56,13 +71,20 @@ export function useProjectStream(projectId: number) {
 			}
 			const es = new EventSource(`/api/projects/${projectId}/stream`);
 			source = es;
-			es.onopen = () => {
+			// An open that drops at once must keep backing off and fall back to polling.
+			const markHealthy = () => {
+				clearTimeout(stableTimer);
 				failures = 0;
 				backoff = BACKOFF_START_MS;
 				stopPolling();
-				if (needsResync) refetchBoard();
+			};
+			es.onopen = () => {
+				clearTimeout(stableTimer);
+				stableTimer = setTimeout(markHealthy, STABLE_MS);
+				if (needsResync) resync();
 			};
 			es.onmessage = (message) => {
+				markHealthy();
 				let event: StreamEvent;
 				try {
 					event = JSON.parse(message.data) as StreamEvent;
@@ -72,6 +94,7 @@ export function useProjectStream(projectId: number) {
 				handleStreamEvent(queryClient, projectId, event);
 			};
 			es.onerror = () => {
+				clearTimeout(stableTimer);
 				es.close();
 				if (source === es) source = null;
 				needsResync = true;
@@ -85,7 +108,7 @@ export function useProjectStream(projectId: number) {
 
 		const onVisibility = () => {
 			if (!visible()) return;
-			refetchBoard();
+			resync();
 			if (!source) {
 				clearTimeout(retryTimer);
 				backoff = BACKOFF_START_MS;
@@ -99,6 +122,7 @@ export function useProjectStream(projectId: number) {
 			disposed = true;
 			document.removeEventListener("visibilitychange", onVisibility);
 			clearTimeout(retryTimer);
+			clearTimeout(stableTimer);
 			stopPolling();
 			source?.close();
 			source = null;

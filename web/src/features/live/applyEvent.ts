@@ -1,5 +1,9 @@
 import type { Board, TaskCard } from "@/api/types";
 
+/** True when `incoming` is older than `existing` (ISO strings may differ in format, so compare instants). */
+export const isOlder = (incoming: string, existing: string) =>
+	Date.parse(incoming) < Date.parse(existing);
+
 const sameCard = (a: TaskCard, b: TaskCard) =>
 	JSON.stringify(a) === JSON.stringify(b);
 
@@ -22,7 +26,7 @@ export function upsertCard(board: Board, card: TaskCard): Board {
 	}
 	if (existing && fromStatus) {
 		// An older event arriving late must not undo a newer cache entry.
-		if (existing.updatedAt > card.updatedAt) return board;
+		if (isOlder(card.updatedAt, existing.updatedAt)) return board;
 		if (fromStatus === card.status && sameCard(existing, card)) return board;
 	}
 

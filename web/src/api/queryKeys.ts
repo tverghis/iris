@@ -2,6 +2,8 @@ export const queryKeys = {
 	users: ["users"] as const,
 	projects: {
 		all: ["projects"] as const,
+		/** Prefix of every list variant (with and without archived). */
+		lists: ["projects", "list"] as const,
 		list: (includeArchived = false) =>
 			["projects", "list", { includeArchived }] as const,
 		detail: (id: number) => ["projects", "detail", id] as const,
@@ -10,6 +12,7 @@ export const queryKeys = {
 		events: (id: number) => ["projects", id, "events"] as const,
 	},
 	tasks: {
+		all: ["tasks"] as const,
 		detail: (id: number) => ["tasks", id] as const,
 		comments: (id: number) => ["tasks", id, "comments"] as const,
 		approvals: (id: number) => ["tasks", id, "approvals"] as const,

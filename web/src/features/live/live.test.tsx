@@ -1,4 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+	QueryClient,
+	QueryClientProvider,
+	QueryObserver,
+} from "@tanstack/react-query";
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import {
@@ -15,7 +19,13 @@ import type { Board, StreamEvent, Task, TaskCard } from "@/api/types";
 import { TASK_STATUSES } from "@/api/types";
 import { removeCard, upsertCard } from "./applyEvent";
 import { handleStreamEvent } from "./handleEvent";
-import { BACKOFF_MAX_MS, POLL_MS, useProjectStream } from "./useProjectStream";
+import {
+	BACKOFF_MAX_MS,
+	BACKOFF_START_MS,
+	POLL_MS,
+	STABLE_MS,
+	useProjectStream,
+} from "./useProjectStream";
 
 const card = (id: number, over: Partial<TaskCard> = {}): TaskCard => ({
 	id,
@@ -200,6 +210,62 @@ describe("handleStreamEvent", () => {
 		expect(col(next, "backlog")).toEqual([2, 3]);
 	});
 
+	test("task.deleted makes an open detail refetch instead of showing the stale task", () => {
+		const qc = client();
+		qc.setQueryData(queryKeys.projects.board(1), makeBoard());
+		qc.setQueryData(queryKeys.tasks.detail(1), card(1));
+		qc.setQueryData(queryKeys.tasks.detail(2), card(2));
+		const unwatch = new QueryObserver(qc, {
+			queryKey: queryKeys.tasks.detail(1),
+			queryFn: () => new Promise(() => {}),
+		}).subscribe(() => {});
+		handleStreamEvent(qc, 1, { type: "task.deleted", taskId: 1 });
+		handleStreamEvent(qc, 1, { type: "task.deleted", taskId: 2 });
+		expect(qc.getQueryState(queryKeys.tasks.detail(1))?.fetchStatus).toBe(
+			"fetching",
+		);
+		expect(qc.getQueryState(queryKeys.tasks.detail(2))).toBeUndefined();
+		unwatch();
+	});
+
+	test("task events refresh the projects list counts", () => {
+		const qc = client();
+		qc.setQueryData(queryKeys.projects.board(1), makeBoard());
+		qc.setQueryData(queryKeys.projects.list(), []);
+		handleStreamEvent(qc, 1, {
+			type: "task.created",
+			taskId: 9,
+			task: card(9),
+		});
+		expect(qc.getQueryState(queryKeys.projects.list())?.isInvalidated).toBe(
+			true,
+		);
+	});
+
+	test("an event is compared by instant, not by string", () => {
+		const qc = client();
+		qc.setQueryData(queryKeys.projects.board(1), makeBoard());
+		// Same instant as the cached card but written with an offset: not older.
+		handleStreamEvent(qc, 1, {
+			type: "task.updated",
+			taskId: 2,
+			task: card(2, {
+				title: "Offset",
+				updatedAt: "2026-01-01T01:00:00+01:00",
+			}),
+		});
+		let board = qc.getQueryData<Board>(queryKeys.projects.board(1)) as Board;
+		expect(board.columns[0].tasks[1].title).toBe("Offset");
+		// An earlier instant that sorts later as a string is dropped.
+		handleStreamEvent(qc, 1, {
+			type: "task.updated",
+			taskId: 2,
+			task: card(2, { title: "Stale", updatedAt: "2025-12-31T23:59:59Z" }),
+		});
+		board = qc.getQueryData<Board>(queryKeys.projects.board(1)) as Board;
+		expect(board.columns[0].tasks[1].title).toBe("Offset");
+	});
+
 	test("related events invalidate only narrow queries, never the board", () => {
 		const qc = client();
 		const board = makeBoard();
@@ -276,6 +342,15 @@ describe("useProjectStream", () => {
 		<QueryClientProvider client={qc}>{children}</QueryClientProvider>
 	);
 
+	// invalidateQueries also goes through refetchQueries; count the board's own.
+	const boardRefetches = () =>
+		refetch.mock.calls.filter(
+			(call) =>
+				call[0]?.exact &&
+				JSON.stringify(call[0].queryKey) ===
+					JSON.stringify(queryKeys.projects.board(1)),
+		);
+
 	beforeEach(() => {
 		vi.useFakeTimers();
 		FakeEventSource.instances = [];
@@ -314,7 +389,7 @@ describe("useProjectStream", () => {
 		expect(FakeEventSource.instances).toHaveLength(1);
 	});
 
-	test("reconnects with exponential backoff capped at 30s, then resets on open", () => {
+	test("reconnects with exponential backoff capped at 30s, then resets after a message", () => {
 		renderHook(() => useProjectStream(1), { wrapper });
 		const delays = [
 			1000,
@@ -335,20 +410,74 @@ describe("useProjectStream", () => {
 			expect(FakeEventSource.instances).toHaveLength(count + 1);
 		}
 		last().open();
+		last().send({ type: "note.changed" });
 		last().fail();
 		const count = FakeEventSource.instances.length;
 		vi.advanceTimersByTime(1000);
 		expect(FakeEventSource.instances).toHaveLength(count + 1);
 	});
 
-	test("refetches the board once after a reconnect opens", () => {
+	test("a connection that opens and drops at once keeps backing off and then polls", () => {
 		renderHook(() => useProjectStream(1), { wrapper });
+		for (const ms of [1000, 2000, 4000, 8000]) {
+			last().open();
+			last().fail();
+			const count = FakeEventSource.instances.length;
+			vi.advanceTimersByTime(ms - 1);
+			expect(FakeEventSource.instances).toHaveLength(count);
+			vi.advanceTimersByTime(1);
+			expect(FakeEventSource.instances).toHaveLength(count + 1);
+		}
+		refetch.mockClear();
+		vi.advanceTimersByTime(POLL_MS);
+		expect(boardRefetches()).toHaveLength(1);
+	});
+
+	test("a connection that stays open for a while resets the backoff and stops polling", () => {
+		renderHook(() => useProjectStream(1), { wrapper });
+		for (let i = 0; i < 3; i++) {
+			last().open();
+			last().fail();
+			vi.advanceTimersByTime(BACKOFF_MAX_MS);
+		}
 		last().open();
-		expect(refetch).not.toHaveBeenCalled();
+		vi.advanceTimersByTime(STABLE_MS);
+		refetch.mockClear();
+		vi.advanceTimersByTime(POLL_MS * 2);
+		expect(boardRefetches()).toHaveLength(0);
+		last().fail();
+		const count = FakeEventSource.instances.length;
+		vi.advanceTimersByTime(BACKOFF_START_MS);
+		expect(FakeEventSource.instances).toHaveLength(count + 1);
+	});
+
+	test("a reconnect also refreshes tasks, questions, approvals and project counts", () => {
+		renderHook(() => useProjectStream(1), { wrapper });
+		const keys = [
+			queryKeys.tasks.comments(3),
+			queryKeys.tasks.detail(3),
+			queryKeys.questions.list(),
+			queryKeys.approvals.list(),
+			queryKeys.projects.list(),
+		];
+		for (const key of keys) qc.setQueryData(key, []);
+		last().open();
 		last().fail();
 		vi.advanceTimersByTime(1000);
 		last().open();
-		expect(refetch).toHaveBeenCalledTimes(1);
+		for (const key of keys) {
+			expect(qc.getQueryState(key)?.isInvalidated).toBe(true);
+		}
+	});
+
+	test("refetches the board once after a reconnect opens", () => {
+		renderHook(() => useProjectStream(1), { wrapper });
+		last().open();
+		expect(boardRefetches()).toHaveLength(0);
+		last().fail();
+		vi.advanceTimersByTime(1000);
+		last().open();
+		expect(boardRefetches()).toHaveLength(1);
 		expect(refetch).toHaveBeenCalledWith({
 			queryKey: queryKeys.projects.board(1),
 			exact: true,
@@ -360,9 +489,9 @@ describe("useProjectStream", () => {
 		last().open();
 		last().fail();
 		setVisibility("hidden");
-		expect(refetch).not.toHaveBeenCalled();
+		expect(boardRefetches()).toHaveLength(0);
 		setVisibility("visible");
-		expect(refetch).toHaveBeenCalledTimes(1);
+		expect(boardRefetches()).toHaveLength(1);
 		expect(FakeEventSource.instances).toHaveLength(2);
 		// the pending backoff retry was cancelled, so no third connection
 		vi.advanceTimersByTime(5000);
@@ -371,7 +500,7 @@ describe("useProjectStream", () => {
 		last().open();
 		setVisibility("visible");
 		expect(FakeEventSource.instances).toHaveLength(2);
-		expect(refetch).toHaveBeenCalledTimes(2);
+		expect(boardRefetches()).toHaveLength(2);
 	});
 
 	test("polls every 15s after 3 failures before opening, stops once connected", () => {
@@ -381,17 +510,18 @@ describe("useProjectStream", () => {
 		last().fail();
 		vi.advanceTimersByTime(2000);
 		vi.advanceTimersByTime(POLL_MS);
-		expect(refetch).not.toHaveBeenCalled();
+		expect(boardRefetches()).toHaveLength(0);
 		last().fail();
 		vi.advanceTimersByTime(POLL_MS);
-		expect(refetch).toHaveBeenCalledTimes(1);
+		expect(boardRefetches()).toHaveLength(1);
 		vi.advanceTimersByTime(POLL_MS);
-		expect(refetch).toHaveBeenCalledTimes(2);
+		expect(boardRefetches()).toHaveLength(2);
 		vi.advanceTimersByTime(5000);
 		last().open();
-		const calls = refetch.mock.calls.length;
+		last().send({ type: "note.changed" });
+		const calls = boardRefetches().length;
 		vi.advanceTimersByTime(POLL_MS * 3);
-		expect(refetch).toHaveBeenCalledTimes(calls);
+		expect(boardRefetches()).toHaveLength(calls);
 	});
 
 	test("polling skips ticks while the page is hidden", () => {
@@ -399,11 +529,11 @@ describe("useProjectStream", () => {
 		renderHook(() => useProjectStream(1), { wrapper });
 		setVisibility("hidden");
 		vi.advanceTimersByTime(POLL_MS * 2);
-		expect(refetch).not.toHaveBeenCalled();
+		expect(boardRefetches()).toHaveLength(0);
 		setVisibility("visible");
-		expect(refetch).toHaveBeenCalledTimes(1);
+		expect(boardRefetches()).toHaveLength(1);
 		vi.advanceTimersByTime(POLL_MS);
-		expect(refetch).toHaveBeenCalledTimes(2);
+		expect(boardRefetches()).toHaveLength(2);
 	});
 
 	test("polls when EventSource is unavailable", () => {
@@ -411,7 +541,7 @@ describe("useProjectStream", () => {
 		renderHook(() => useProjectStream(1), { wrapper });
 		expect(FakeEventSource.instances).toHaveLength(0);
 		vi.advanceTimersByTime(POLL_MS);
-		expect(refetch).toHaveBeenCalledTimes(1);
+		expect(boardRefetches()).toHaveLength(1);
 	});
 
 	test("unmount closes the stream and stops timers", () => {

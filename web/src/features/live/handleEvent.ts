@@ -1,7 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/api/queryKeys";
 import type { Board, StreamEvent, Task } from "@/api/types";
-import { removeCard, upsertCard } from "./applyEvent";
+import { isOlder, removeCard, upsertCard } from "./applyEvent";
 
 /** Applies one stream event to the cache. Task events patch a single card; nothing refetches the board. */
 export function handleStreamEvent(
@@ -22,10 +22,13 @@ export function handleStreamEvent(
 			);
 			const detailKey = queryKeys.tasks.detail(task.id);
 			queryClient.setQueryData<Task>(detailKey, (old) =>
-				old && old.updatedAt <= task.updatedAt ? { ...old, ...task } : old,
+				old && !isOlder(task.updatedAt, old.updatedAt)
+					? { ...old, ...task }
+					: old,
 			);
 			// The card lacks description and dependencies; refetch only this task, and only if it is in use.
 			queryClient.invalidateQueries({ queryKey: detailKey, exact: true });
+			queryClient.invalidateQueries({ queryKey: queryKeys.projects.lists });
 			return;
 		}
 		case "task.deleted": {
@@ -34,7 +37,11 @@ export function handleStreamEvent(
 				boardKey,
 				(board) => board && removeCard(board, taskId),
 			);
-			queryClient.removeQueries({ queryKey: queryKeys.tasks.detail(taskId) });
+			// An open drawer refetches and shows "not found"; unused entries just go.
+			const detailKey = queryKeys.tasks.detail(taskId);
+			queryClient.removeQueries({ queryKey: detailKey, type: "inactive" });
+			queryClient.invalidateQueries({ queryKey: detailKey, exact: true });
+			queryClient.invalidateQueries({ queryKey: queryKeys.projects.lists });
 			return;
 		}
 		case "project.updated": {
@@ -45,7 +52,7 @@ export function handleStreamEvent(
 				(board) => board && { ...board, project },
 			);
 			queryClient.setQueryData(queryKeys.projects.detail(projectId), project);
-			queryClient.invalidateQueries({ queryKey: queryKeys.projects.list() });
+			queryClient.invalidateQueries({ queryKey: queryKeys.projects.lists });
 			return;
 		}
 		case "comment.created":
