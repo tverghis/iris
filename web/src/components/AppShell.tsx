@@ -6,7 +6,7 @@ import { MOBILE_QUERY } from "@/lib/useMediaQuery";
 import { cn } from "@/lib/utils";
 import { AppRoutes } from "@/routes";
 import { DispatcherStatus } from "./DispatcherStatus";
-import { UserSwitcher } from "./UserSwitcher";
+import { UserSwitcher, useUserReady } from "./UserSwitcher";
 
 const Toaster = lazy(() =>
 	import("@/components/ui/sonner").then((m) => ({ default: m.Toaster })),
@@ -52,6 +52,7 @@ function useMobileHomeRedirect() {
 
 export function AppShell() {
 	useMobileHomeRedirect();
+	const userReady = useUserReady();
 	// The board uses the full viewport width so all columns fit.
 	const [isBoard] = useRoute("/projects/:projectId");
 	return (
@@ -74,7 +75,7 @@ export function AppShell() {
 						<NavLink to="/inbox">
 							<Inbox className="size-4" aria-hidden />
 							<span className="sr-only sm:not-sr-only">Needs you</span>
-							<InboxBadge />
+							{userReady && <InboxBadge />}
 						</NavLink>
 					</nav>
 					<div className="ml-auto">
@@ -91,7 +92,7 @@ export function AppShell() {
 					!isBoard && "max-w-6xl",
 				)}
 			>
-				<AppRoutes />
+				{userReady && <AppRoutes />}
 			</main>
 			<Suspense fallback={null}>
 				<Toaster position="bottom-center" />

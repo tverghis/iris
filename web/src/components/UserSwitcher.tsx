@@ -4,23 +4,38 @@ import { api } from "@/api/client";
 import { queryKeys } from "@/api/queryKeys";
 import { setCurrentUserId, useCurrentUserId } from "@/lib/currentUser";
 
-export function UserSwitcher() {
-	const queryClient = useQueryClient();
+function useUserState() {
 	const currentId = useCurrentUserId();
-	const { data: users } = useQuery({
+	const { data: users, isPending } = useQuery({
 		queryKey: queryKeys.users,
 		queryFn: async () => (await api.GET("/api/users")).data ?? [],
 		staleTime: Number.POSITIVE_INFINITY,
 	});
-
 	const known = users?.some((u) => u.id === currentId) ?? false;
+	return { currentId, users, isPending, known };
+}
+
+/**
+ * Picks the default user on a fresh device. True once the user is settled, so
+ * user-dependent queries never run without an X-Iris-User header (unless the
+ * user list itself cannot be loaded).
+ */
+export function useUserReady() {
+	const { users, isPending, known } = useUserState();
 	useEffect(() => {
 		if (users?.length && !known) setCurrentUserId(users[0].id);
 	}, [users, known]);
+	return !isPending && (known || !users?.length);
+}
+
+export function UserSwitcher() {
+	const queryClient = useQueryClient();
+	const { currentId, users, known } = useUserState();
 
 	function change(id: number) {
 		setCurrentUserId(id);
-		queryClient.invalidateQueries({
+		// Another user's data must not linger in the cache (or in storage).
+		queryClient.resetQueries({
 			predicate: (query) => query.queryKey[0] !== queryKeys.users[0],
 		});
 	}

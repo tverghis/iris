@@ -79,3 +79,29 @@ test("the user switcher persists the user and sends X-Iris-User", async () => {
 	await api.GET("/api/projects");
 	expect(seen.at(-1)).toBe("2");
 });
+
+test("a first load with no saved user sends X-Iris-User on every user-dependent request", async () => {
+	const seen: Record<string, string | null> = {};
+	server.use(
+		http.get("/api/projects/:id/board", ({ request }) => {
+			seen.board = request.headers.get("X-Iris-User");
+			return undefined;
+		}),
+		http.get("/api/approvals", ({ request }) => {
+			seen.approvals = request.headers.get("X-Iris-User");
+			return undefined;
+		}),
+		http.get("/api/questions", ({ request }) => {
+			seen.questions = request.headers.get("X-Iris-User");
+			return undefined;
+		}),
+	);
+	expect(localStorage.getItem("iris.userId")).toBeNull();
+	renderApp("/projects/1");
+
+	expect(
+		await screen.findByRole("heading", { name: "Summer trip" }),
+	).toBeInTheDocument();
+	await waitFor(() => expect(seen.approvals).toBeDefined());
+	expect(seen).toEqual({ board: "1", approvals: "1", questions: "1" });
+});

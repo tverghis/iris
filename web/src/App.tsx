@@ -14,7 +14,7 @@ function App() {
 		createQueryClient({ persisted: persist }),
 	);
 	const [persistOptions] = useState(() =>
-		persist ? createPersistOptions() : null,
+		persist ? createPersistOptions(queryClient) : null,
 	);
 	if (!persistOptions) {
 		return (
