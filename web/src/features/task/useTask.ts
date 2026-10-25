@@ -50,7 +50,7 @@ function patchCard(
 }
 
 /** Copies the card-level fields of a full task onto its board card. */
-function syncFromTask(queryClient: QueryClient, task: Task) {
+export function syncFromTask(queryClient: QueryClient, task: Task) {
 	patchCard(queryClient, task.projectId, task.id, {
 		title: task.title,
 		assigneeKind: task.assigneeKind,
