@@ -10,7 +10,7 @@ import { renderApp, renderWithProviders } from "./testUtils";
 
 test.each([
 	["/", "Projects"],
-	["/projects/1", "Board"],
+	["/projects/1", "Summer trip"],
 	["/projects/1/context", "Project context"],
 	["/inbox", "Needs you"],
 ])("route %s renders", async (path, heading) => {

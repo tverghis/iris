@@ -9,12 +9,15 @@ import { Toaster } from "@/components/ui/sonner";
 
 function renderAt(ui: ReactElement, route: string) {
 	const queryClient = createQueryClient();
-	const { hook } = memoryLocation({ path: route });
+	const [path, search = ""] = route.split("?");
+	const { hook, searchHook } = memoryLocation({ path, searchPath: search });
 	return {
 		queryClient,
 		...render(
 			<QueryClientProvider client={queryClient}>
-				<Router hook={hook}>{ui}</Router>
+				<Router hook={hook} searchHook={searchHook}>
+					{ui}
+				</Router>
 			</QueryClientProvider>,
 		),
 	};

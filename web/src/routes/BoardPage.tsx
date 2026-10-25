@@ -1,8 +1,11 @@
+import { useParams } from "wouter";
+import { BoardView } from "@/features/board/BoardView";
+
 export function Component() {
-	return (
-		<section>
-			<h1 className="text-xl font-semibold">Board</h1>
-			<p className="mt-2 text-sm text-muted-foreground">Coming soon.</p>
-		</section>
-	);
+	const { projectId } = useParams<{ projectId: string }>();
+	const id = Number(projectId);
+	if (!Number.isInteger(id)) {
+		return <p className="text-sm">Project not found.</p>;
+	}
+	return <BoardView projectId={id} />;
 }
