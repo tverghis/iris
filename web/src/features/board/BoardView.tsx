@@ -197,6 +197,7 @@ export function BoardView({ projectId }: { projectId: number }) {
 				className="flex min-h-0 flex-1 flex-col gap-3 pb-2 md:flex-row md:overflow-x-auto md:overscroll-x-contain"
 			>
 				<DndContext
+					autoScroll={{ threshold: { x: 0.1, y: 0.15 }, acceleration: 3 }}
 					sensors={sensors}
 					collisionDetection={collisionDetection}
 					onDragStart={onDragStart}

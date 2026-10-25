@@ -9,6 +9,10 @@ import { Toaster } from "@/components/ui/sonner";
 
 function renderAt(ui: ReactElement, route: string) {
 	const queryClient = createQueryClient();
+	// Retrying a failed request (with backoff) would outlast test timeouts.
+	queryClient.setDefaultOptions({
+		queries: { ...queryClient.getDefaultOptions().queries, retry: false },
+	});
 	const [path, search = ""] = route.split("?");
 	const { hook, searchHook } = memoryLocation({ path, searchPath: search });
 	return {

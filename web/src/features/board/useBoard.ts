@@ -8,6 +8,7 @@ import { useCallback } from "react";
 import { api } from "@/api/client";
 import { queryKeys } from "@/api/queryKeys";
 import type { Board, Task, TaskCard, TaskStatus, User } from "@/api/types";
+import { upsertCard } from "@/features/live/applyEvent";
 import { toastError } from "@/lib/toast";
 import { moveTaskInColumns, replaceCard } from "./boardModel";
 import { consumeBoardPrefetch } from "./boardPrefetch";
@@ -49,13 +50,7 @@ export function addTaskToBoard(
 ) {
 	queryClient.setQueryData<Board>(
 		queryKeys.projects.board(projectId),
-		(board) =>
-			board && {
-				...board,
-				columns: board.columns.map((c) =>
-					c.status === task.status ? { ...c, tasks: [...c.tasks, task] } : c,
-				),
-			},
+		(board) => board && upsertCard(board, task),
 	);
 }
 

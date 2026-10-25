@@ -1,5 +1,5 @@
 import { Loader2 } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +14,7 @@ export function DispatcherStatus() {
 	const { data: status, isError } = useDispatchStatus();
 	const runNow = useRunNow();
 	const now = useNow();
+	const reasonId = useId();
 	const [requested, setRequested] = useState(false);
 
 	useEffect(() => {
@@ -43,24 +44,36 @@ export function DispatcherStatus() {
 	else if (status) text = "Dispatcher: idle";
 	else if (!isError) text = "Dispatcher…";
 
+	let disabledReason: string | null = null;
+	if (run) disabledReason = "An agent run is already in progress";
+	else if (!status) disabledReason = "Dispatcher status unavailable";
+	else if (runNow.isPending) disabledReason = "A tick is being requested";
+
 	return (
 		<div
 			className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground"
 			aria-live="polite"
 		>
 			<span className="flex min-w-0 items-center gap-1.5">{text}</span>
-			<Button
-				type="button"
-				size="sm"
-				variant="outline"
-				className="shrink-0"
-				disabled={runNow.isPending || !status || run !== null}
-				onClick={() =>
-					runNow.mutate(undefined, { onSuccess: () => setRequested(true) })
-				}
-			>
-				Run now
-			</Button>
+			<span title={disabledReason ?? undefined} className="shrink-0">
+				<Button
+					type="button"
+					size="sm"
+					variant="outline"
+					aria-describedby={disabledReason ? reasonId : undefined}
+					disabled={disabledReason !== null}
+					onClick={() =>
+						runNow.mutate(undefined, { onSuccess: () => setRequested(true) })
+					}
+				>
+					Run now
+				</Button>
+				{disabledReason && (
+					<span id={reasonId} className="sr-only">
+						{disabledReason}
+					</span>
+				)}
+			</span>
 		</div>
 	);
 }

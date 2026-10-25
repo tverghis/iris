@@ -27,7 +27,7 @@ export function useCreateProject() {
 			for (const key of [activeKey, allKey]) {
 				queryClient.setQueryData<Project[]>(
 					key,
-					(old) => old && [project, ...old],
+					(old) => old && [project, ...old.filter((p) => p.id !== project.id)],
 				);
 			}
 			queryClient.setQueryData(queryKeys.projects.detail(project.id), project);
