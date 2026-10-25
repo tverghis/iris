@@ -1,6 +1,9 @@
+import { useEffect } from "react";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
+import { toasterMounted } from "@/lib/toast";
 
 function Toaster(props: ToasterProps) {
+	useEffect(toasterMounted, []);
 	return (
 		<Sonner
 			theme="system"

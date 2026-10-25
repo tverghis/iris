@@ -1,5 +1,5 @@
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toastError } from "@/lib/toast";
 import { ApiError } from "./errors";
 
 declare module "@tanstack/react-query" {
@@ -11,7 +11,7 @@ declare module "@tanstack/react-query" {
 
 function notify(error: Error, silent?: boolean) {
 	if (silent) return;
-	toast.error(error.message || "Something went wrong", { id: error.message });
+	toastError(error.message || "Something went wrong");
 }
 
 export function createQueryClient() {

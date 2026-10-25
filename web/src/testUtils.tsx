@@ -1,35 +1,36 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
 import type { ReactElement } from "react";
-import { createMemoryRouter, MemoryRouter } from "react-router";
-import { RouterProvider } from "react-router/dom";
+import { Router } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
 import { createQueryClient } from "@/api/queryClient";
+import { AppShell } from "@/components/AppShell";
 import { Toaster } from "@/components/ui/sonner";
-import { routes } from "./routes";
 
-export function renderWithProviders(ui: ReactElement, route = "/") {
+function renderAt(ui: ReactElement, route: string) {
 	const queryClient = createQueryClient();
+	const { hook } = memoryLocation({ path: route });
 	return {
 		queryClient,
 		...render(
 			<QueryClientProvider client={queryClient}>
-				<MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
-				<Toaster />
+				<Router hook={hook}>{ui}</Router>
 			</QueryClientProvider>,
 		),
 	};
 }
 
-/** Renders the real route tree, including the shell, at `route`. */
+export function renderWithProviders(ui: ReactElement, route = "/") {
+	return renderAt(
+		<>
+			{ui}
+			<Toaster />
+		</>,
+		route,
+	);
+}
+
+/** Renders the real shell (which includes the Toaster) and routes at `route`. */
 export function renderApp(route = "/") {
-	const queryClient = createQueryClient();
-	const router = createMemoryRouter(routes, { initialEntries: [route] });
-	return {
-		queryClient,
-		...render(
-			<QueryClientProvider client={queryClient}>
-				<RouterProvider router={router} />
-			</QueryClientProvider>,
-		),
-	};
+	return renderAt(<AppShell />, route);
 }

@@ -29,6 +29,7 @@ export default defineConfig({
 	resolve: {
 		alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
 	},
+	build: { manifest: true },
 	server: {
 		proxy: {
 			"/api": "http://localhost:8080",

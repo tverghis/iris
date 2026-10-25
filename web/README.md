@@ -1,6 +1,6 @@
 # Iris Web
 
-React 19, TypeScript and Vite single-page app with React Router, TanStack Query, Tailwind CSS v4, shadcn/ui, Vitest and Biome.
+React 19, TypeScript and Vite single-page app with wouter, TanStack Query, Tailwind CSS v4, shadcn/ui, Vitest and Biome.
 
 ## Setup
 
