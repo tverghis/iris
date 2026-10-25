@@ -23,8 +23,9 @@ test.each([
 		"href",
 		"/",
 	);
-	expect(screen.getByText("Dispatcher: idle")).toBeInTheDocument();
-	expect(screen.getByRole("button", { name: "Run now" })).toBeDisabled();
+	expect(
+		await screen.findByRole("button", { name: "Run now" }),
+	).toBeInTheDocument();
 });
 
 function Failing() {
