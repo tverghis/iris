@@ -10,7 +10,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 @EnableConfigurationProperties({DatabaseProperties.class, AgentRunProperties.class})
 public class IrisApplication {
 
-    public static void main(String[] args) {
-        SpringApplication.run(IrisApplication.class, args);
-    }
+  static void main(String[] args) {
+    SpringApplication.run(IrisApplication.class, args);
+  }
 }
