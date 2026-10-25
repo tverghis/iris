@@ -28,7 +28,7 @@ function mockServiceWorker(): Plugin {
 
 // Starts the board request while the JS downloads; the board query consumes it.
 // Production builds only, so it never races the MSW worker in dev or mock mode.
-const BOARD_PREFETCH = `(function(){var m=/^\\/projects\\/(\\d+)\\/?$/.exec(location.pathname);if(!m)return;var h={};try{var u=localStorage.getItem("iris.userId");if(u)h["X-Iris-User"]=u}catch(e){}var id=+m[1];var p=fetch("/api/projects/"+id+"/board",{headers:h});p.catch(function(){});window.__irisBoardPrefetch={projectId:id,startedAt:Date.now(),promise:p}})();`;
+const BOARD_PREFETCH = `(function(){var m=/^\\/projects\\/(\\d+)\\/?$/.exec(location.pathname);if(!m)return;var u=null;try{u=localStorage.getItem("iris.userId")}catch(e){}if(!u)return;var h={"X-Iris-User":u};var id=+m[1];var p=fetch("/api/projects/"+id+"/board",{headers:h});p.catch(function(){});window.__irisBoardPrefetch={projectId:id,startedAt:Date.now(),promise:p}})();`;
 
 function boardPrefetch(): Plugin {
 	return {
