@@ -1,39 +1,107 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { expect, test, vi } from "vitest";
-import App from "./App";
+import { useQuery } from "@tanstack/react-query";
+import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { HttpResponse, http } from "msw";
+import { expect, test } from "vitest";
+import { api } from "@/api/client";
+import { parseErrorMessage } from "@/api/errors";
+import { server } from "@/mocks/server";
+import { renderApp, renderWithProviders } from "./testUtils";
 
-test("displays the welcome message", () => {
-	render(<App />);
+test.each([
+	["/", "Projects"],
+	["/projects/1", "Summer trip"],
+	["/projects/1/context", "Project context"],
+	["/inbox", "Needs you"],
+])("route %s renders", async (path, heading) => {
+	renderApp(path);
 
 	expect(
-		screen.getByRole("heading", { name: "Welcome, Iris." }),
+		await screen.findByRole("heading", { name: heading }),
+	).toBeInTheDocument();
+	expect(screen.getByRole("link", { name: "Iris" })).toHaveAttribute(
+		"href",
+		"/",
+	);
+	expect(
+		await screen.findByRole("button", { name: "Run now" }),
 	).toBeInTheDocument();
 });
 
-test("checks the proxied health endpoint", async () => {
-	const fetchMock = vi
-		.fn()
-		.mockResolvedValue(new Response(null, { status: 200 }));
-	vi.stubGlobal("fetch", fetchMock);
-	render(<App />);
+function Failing() {
+	useQuery({
+		queryKey: ["failing"],
+		queryFn: async () => (await api.GET("/api/projects")).data,
+	});
+	return null;
+}
 
-	const button = screen.getByRole("button", { name: "Check health" });
-	fireEvent.click(button);
+test("a failed request shows the server message in a toast", async () => {
+	server.use(
+		http.get("/api/projects", () =>
+			HttpResponse.json({ message: "Database is on fire" }, { status: 500 }),
+		),
+	);
+	renderWithProviders(<Failing />);
 
-	expect(button).toBeDisabled();
-	expect(await screen.findByText("Healthy")).toBeInTheDocument();
-	expect(button).toBeEnabled();
-	expect(fetchMock).toHaveBeenCalledWith("/healthz");
+	expect(
+		await screen.findByText("Database is on fire", {}, { timeout: 10_000 }),
+	).toBeInTheDocument();
 });
 
-test("reports an unhealthy backend response", async () => {
-	vi.stubGlobal(
-		"fetch",
-		vi.fn().mockResolvedValue(new Response(null, { status: 503 })),
+test("error bodies in RFC 7807 form or without JSON fall back sensibly", async () => {
+	const problem = new Response(JSON.stringify({ title: "T", detail: "D" }), {
+		status: 400,
+	});
+	expect(await parseErrorMessage(problem)).toBe("D");
+	const plain = new Response("nope", {
+		status: 502,
+		statusText: "Bad Gateway",
+	});
+	expect(await parseErrorMessage(plain)).toBe("Bad Gateway");
+});
+
+test("the user switcher persists the user and sends X-Iris-User", async () => {
+	const seen: (string | null)[] = [];
+	server.use(
+		http.get("/api/projects", ({ request }) => {
+			seen.push(request.headers.get("X-Iris-User"));
+			return HttpResponse.json([]);
+		}),
 	);
-	render(<App />);
+	renderApp("/");
 
-	fireEvent.click(screen.getByRole("button", { name: "Check health" }));
+	const select = await screen.findByRole("combobox", { name: "Signed in as" });
+	await waitFor(() => expect(select).toHaveValue("1"));
+	await userEvent.selectOptions(select, "Partner");
 
-	expect(await screen.findByText("Unavailable")).toBeInTheDocument();
+	expect(localStorage.getItem("iris.userId")).toBe("2");
+	await api.GET("/api/projects");
+	expect(seen.at(-1)).toBe("2");
+});
+
+test("a first load with no saved user sends X-Iris-User on every user-dependent request", async () => {
+	const seen: Record<string, string | null> = {};
+	server.use(
+		http.get("/api/projects/:id/board", ({ request }) => {
+			seen.board = request.headers.get("X-Iris-User");
+			return undefined;
+		}),
+		http.get("/api/approvals", ({ request }) => {
+			seen.approvals = request.headers.get("X-Iris-User");
+			return undefined;
+		}),
+		http.get("/api/questions", ({ request }) => {
+			seen.questions = request.headers.get("X-Iris-User");
+			return undefined;
+		}),
+	);
+	expect(localStorage.getItem("iris.userId")).toBeNull();
+	renderApp("/projects/1");
+
+	expect(
+		await screen.findByRole("heading", { name: "Summer trip" }),
+	).toBeInTheDocument();
+	await waitFor(() => expect(seen.approvals).toBeDefined());
+	expect(seen).toEqual({ board: "1", approvals: "1", questions: "1" });
 });

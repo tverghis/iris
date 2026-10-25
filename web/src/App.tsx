@@ -1,37 +1,35 @@
+import { QueryClientProvider } from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { useState } from "react";
+import { createPersistOptions } from "@/api/persistence";
+import { createQueryClient } from "@/api/queryClient";
+import { AppShell } from "@/components/AppShell";
 
-type HealthStatus = "idle" | "checking" | "healthy" | "unavailable";
+// The mock API resets on every load, so restoring its data would only mislead.
+const persist =
+	import.meta.env.VITE_MOCK_API !== "true" && import.meta.env.MODE !== "test";
 
 function App() {
-	const [healthStatus, setHealthStatus] = useState<HealthStatus>("idle");
-
-	async function checkHealth() {
-		setHealthStatus("checking");
-
-		try {
-			const response = await fetch("/healthz");
-			setHealthStatus(response.ok ? "healthy" : "unavailable");
-		} catch {
-			setHealthStatus("unavailable");
-		}
+	const [queryClient] = useState(() =>
+		createQueryClient({ persisted: persist }),
+	);
+	const [persistOptions] = useState(() =>
+		persist ? createPersistOptions(queryClient) : null,
+	);
+	if (!persistOptions) {
+		return (
+			<QueryClientProvider client={queryClient}>
+				<AppShell />
+			</QueryClientProvider>
+		);
 	}
-
 	return (
-		<main>
-			<h1>Welcome, Iris.</h1>
-			<button
-				type="button"
-				onClick={checkHealth}
-				disabled={healthStatus === "checking"}
-			>
-				Check health
-			</button>
-			<p role="status">
-				{healthStatus === "checking" && "Checking…"}
-				{healthStatus === "healthy" && "Healthy"}
-				{healthStatus === "unavailable" && "Unavailable"}
-			</p>
-		</main>
+		<PersistQueryClientProvider
+			client={queryClient}
+			persistOptions={persistOptions}
+		>
+			<AppShell />
+		</PersistQueryClientProvider>
 	);
 }
 
