@@ -1,19 +1,53 @@
-import { useCallback, useMemo } from "react";
+import {
+	type CollisionDetection,
+	DndContext,
+	type DragEndEvent,
+	type DragOverEvent,
+	DragOverlay,
+	type DragStartEvent,
+	pointerWithin,
+	rectIntersection,
+} from "@dnd-kit/core";
+import { useCallback, useMemo, useState } from "react";
 import { Link, useSearchParams } from "wouter";
 import { ApiError } from "@/api/client";
+import type { BoardColumn as BoardColumnData } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { useProjectStream } from "@/features/live/useProjectStream";
 import { TaskDrawerMount } from "@/features/task/TaskDrawerMount";
 import { useCurrentUserId } from "@/lib/currentUser";
 import { BoardColumn } from "./BoardColumn";
-import { type BoardFilter, filterColumns, parseFilter } from "./boardModel";
-import { useBoard, useUsers } from "./useBoard";
+import {
+	type BoardFilter,
+	columnIds,
+	filterColumns,
+	moveTaskInColumns,
+	parseFilter,
+	resolveDrop,
+} from "./boardModel";
+import { useBoardSensors } from "./dndSensors";
+import { TaskCardOverlay } from "./TaskCard";
+import { useBoard, useMoveTask, useUsers } from "./useBoard";
 
 const FILTERS: { value: BoardFilter; label: string }[] = [
 	{ value: "mine", label: "Mine" },
 	{ value: "agent", label: "Agent" },
 	{ value: "all", label: "All" },
 ];
+
+/** Prefer the card under the pointer, then the column; keyboard uses rects. */
+const collisionDetection: CollisionDetection = (args) => {
+	const hits = pointerWithin(args);
+	const found = hits.length ? hits : rectIntersection(args);
+	const card = found.find((h) => typeof h.id === "number");
+	return card ? [card] : found.slice(0, 1);
+};
+
+interface DragState {
+	taskId: number;
+	/** Visible columns as previewed while dragging. */
+	columns: BoardColumnData[];
+}
 
 export function BoardView({ projectId }: { projectId: number }) {
 	const { project, columns, isPending, error, refetch } = useBoard(projectId);
@@ -31,6 +65,57 @@ export function BoardView({ projectId }: { projectId: number }) {
 		() => (columns ? filterColumns(columns, filter, currentUserId) : []),
 		[columns, filter, currentUserId],
 	);
+	const sensors = useBoardSensors();
+	const { move } = useMoveTask(projectId);
+	const [drag, setDrag] = useState<DragState | null>(null);
+	const shownColumns = drag?.columns ?? visibleColumns;
+	const activeTask = drag
+		? visibleColumns.flatMap((c) => c.tasks).find((t) => t.id === drag.taskId)
+		: undefined;
+
+	const onDragStart = ({ active }: DragStartEvent) =>
+		setDrag({ taskId: Number(active.id), columns: visibleColumns });
+
+	const onDragOver = ({ active, over }: DragOverEvent) => {
+		if (!drag || !over) return;
+		const taskId = Number(active.id);
+		const plan = resolveDrop(drag.columns, taskId, over.id);
+		const current = drag.columns.find((c) =>
+			c.tasks.some((t) => t.id === taskId),
+		);
+		if (!plan || plan.status === current?.status) return;
+		setDrag({
+			taskId,
+			columns: moveTaskInColumns(
+				drag.columns,
+				taskId,
+				plan.status,
+				plan.afterTaskId,
+			),
+		});
+	};
+
+	const onDragEnd = ({ active, over }: DragEndEvent) => {
+		const preview = drag?.columns ?? visibleColumns;
+		setDrag(null);
+		if (!over) return;
+		const taskId = Number(active.id);
+		const plan = resolveDrop(preview, taskId, over.id);
+		if (!plan) return;
+		const result = moveTaskInColumns(
+			visibleColumns,
+			taskId,
+			plan.status,
+			plan.afterTaskId,
+		);
+		if (
+			JSON.stringify(columnIds(result)) ===
+			JSON.stringify(columnIds(visibleColumns))
+		) {
+			return;
+		}
+		move({ taskId, ...plan });
+	};
 
 	const setFilter = (next: BoardFilter) =>
 		setParams(
@@ -107,15 +192,37 @@ export function BoardView({ projectId }: { projectId: number }) {
 				data-board-scroll
 				className="flex min-h-0 flex-1 gap-3 overflow-x-auto overscroll-x-contain pb-2"
 			>
-				{visibleColumns.map((column) => (
-					<BoardColumn
-						key={column.status}
-						projectId={projectId}
-						column={column}
-						userNames={userNames}
-						onOpenTask={openTask}
-					/>
-				))}
+				<DndContext
+					sensors={sensors}
+					collisionDetection={collisionDetection}
+					onDragStart={onDragStart}
+					onDragOver={onDragOver}
+					onDragEnd={onDragEnd}
+					onDragCancel={() => setDrag(null)}
+				>
+					{shownColumns.map((column) => (
+						<BoardColumn
+							key={column.status}
+							projectId={projectId}
+							column={column}
+							userNames={userNames}
+							onOpenTask={openTask}
+						/>
+					))}
+					<DragOverlay dropAnimation={null}>
+						{activeTask && (
+							<TaskCardOverlay
+								task={activeTask}
+								userName={
+									activeTask.assigneeUserId === null
+										? undefined
+										: userNames.get(activeTask.assigneeUserId)
+								}
+								onOpen={openTask}
+							/>
+						)}
+					</DragOverlay>
+				</DndContext>
 			</div>
 			<TaskDrawerMount projectId={projectId} />
 		</div>

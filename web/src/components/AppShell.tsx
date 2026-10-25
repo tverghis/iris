@@ -39,6 +39,8 @@ function InboxBadge() {
 }
 
 export function AppShell() {
+	// The board uses the full viewport width so all columns fit.
+	const [isBoard] = useRoute("/projects/:projectId");
 	return (
 		<div className="flex min-h-dvh flex-col">
 			<header className="border-b px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
@@ -65,7 +67,9 @@ export function AppShell() {
 					</div>
 				</div>
 			</header>
-			<main className="mx-auto w-full max-w-6xl flex-1 p-4">
+			<main
+				className={cn("mx-auto w-full flex-1 p-4", !isBoard && "max-w-6xl")}
+			>
 				<AppRoutes />
 			</main>
 			<Suspense fallback={null}>

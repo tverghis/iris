@@ -1,7 +1,17 @@
+import { useDroppable } from "@dnd-kit/core";
+import {
+	SortableContext,
+	verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { useState } from "react";
 import type { BoardColumn as BoardColumnData } from "@/api/types";
 import { Button } from "@/components/ui/button";
-import { COLUMN_TITLES, DONE_PAGE_SIZE, sortDone } from "./boardModel";
+import {
+	COLUMN_TITLES,
+	columnDropId,
+	DONE_PAGE_SIZE,
+	sortDone,
+} from "./boardModel";
 import { QuickAdd } from "./QuickAdd";
 import { TaskCard } from "./TaskCard";
 
@@ -24,9 +34,11 @@ export function BoardColumn({
 	const isDone = status === "done";
 	const tasks = isDone ? sortDone(column.tasks) : column.tasks;
 	const visible = isDone ? tasks.slice(0, limit) : tasks;
+	const { setNodeRef } = useDroppable({ id: columnDropId(status) });
 
 	return (
 		<section
+			ref={setNodeRef}
 			aria-label={title}
 			data-status={status}
 			className="flex max-h-full w-72 shrink-0 flex-col rounded-lg bg-muted/50 max-md:w-64"
@@ -46,18 +58,23 @@ export function BoardColumn({
 				data-column-scroll
 				className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-2 pb-2"
 			>
-				{visible.map((task) => (
-					<TaskCard
-						key={task.id}
-						task={task}
-						userName={
-							task.assigneeUserId === null
-								? undefined
-								: userNames.get(task.assigneeUserId)
-						}
-						onOpen={onOpenTask}
-					/>
-				))}
+				<SortableContext
+					items={visible.map((t) => t.id)}
+					strategy={verticalListSortingStrategy}
+				>
+					{visible.map((task) => (
+						<TaskCard
+							key={task.id}
+							task={task}
+							userName={
+								task.assigneeUserId === null
+									? undefined
+									: userNames.get(task.assigneeUserId)
+							}
+							onOpen={onOpenTask}
+						/>
+					))}
+				</SortableContext>
 				{isDone && tasks.length > limit && (
 					<Button
 						variant="ghost"

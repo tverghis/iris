@@ -1,7 +1,10 @@
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Bot, Hourglass, Loader2, ShieldQuestion } from "lucide-react";
 import { memo } from "react";
 import type { TaskCard as TaskCardData } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 function initials(name: string | undefined) {
 	const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);
@@ -52,17 +55,19 @@ interface Props {
 	onOpen: (taskId: number) => void;
 }
 
-export const TaskCard = memo(function TaskCard({
-	task,
-	userName,
-	onOpen,
-}: Props) {
+type CardProps = Props & React.ComponentProps<"button">;
+
+function CardButton({ task, userName, onOpen, className, ...rest }: CardProps) {
 	return (
 		<button
 			type="button"
 			data-task-id={task.id}
 			onClick={() => onOpen(task.id)}
-			className="flex w-full flex-col gap-2 rounded-md border bg-card p-3 text-left text-sm shadow-xs outline-none [contain-intrinsic-size:auto_76px] [content-visibility:auto] hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50"
+			{...rest}
+			className={cn(
+				"flex w-full flex-col gap-2 rounded-md border bg-card p-3 text-left text-sm shadow-xs outline-none [contain-intrinsic-size:auto_76px] [content-visibility:auto] hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50",
+				className,
+			)}
 		>
 			<span className="break-words font-medium">{task.title}</span>
 			<span className="flex flex-wrap items-center gap-1.5">
@@ -88,4 +93,37 @@ export const TaskCard = memo(function TaskCard({
 			</span>
 		</button>
 	);
+}
+
+/** A draggable card; must render inside a SortableContext. */
+export const TaskCard = memo(function TaskCard(props: Props) {
+	const {
+		attributes,
+		listeners,
+		setNodeRef,
+		transform,
+		transition,
+		isDragging,
+	} = useSortable({ id: props.task.id });
+	return (
+		<CardButton
+			{...props}
+			{...attributes}
+			{...listeners}
+			ref={setNodeRef}
+			style={{ transform: CSS.Translate.toString(transform), transition }}
+			className={cn(isDragging && "opacity-40")}
+		/>
+	);
 });
+
+/** The copy that follows the pointer inside the DragOverlay. */
+export function TaskCardOverlay(props: Props) {
+	return (
+		<CardButton
+			{...props}
+			tabIndex={-1}
+			className="cursor-grabbing bg-card [content-visibility:visible]"
+		/>
+	);
+}
