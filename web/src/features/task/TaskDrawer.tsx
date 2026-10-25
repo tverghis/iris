@@ -57,7 +57,7 @@ function TaskBody({ task, onClose }: { task: Task; onClose: () => void }) {
 
 	return (
 		<>
-			<SheetHeader className="pr-10">
+			<SheetHeader className="pt-[calc(1rem+env(safe-area-inset-top))] pr-12">
 				<SheetTitle className="sr-only">Task</SheetTitle>
 				<TitleField task={task} save={save} />
 				<SheetDescription className="px-2">
@@ -66,7 +66,7 @@ function TaskBody({ task, onClose }: { task: Task; onClose: () => void }) {
 					{relativeTime(task.updatedAt)}
 				</SheetDescription>
 			</SheetHeader>
-			<div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4">
+			<div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain px-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
 				<DrawerSection title="Description">
 					<DescriptionField task={task} save={save} />
 				</DrawerSection>
@@ -159,7 +159,7 @@ export default function TaskDrawer({
 				{task && !missing ? (
 					<TaskBody task={task} onClose={close} />
 				) : (
-					<SheetHeader>
+					<SheetHeader className="pt-[calc(1rem+env(safe-area-inset-top))] pr-12">
 						<SheetTitle>
 							{missing
 								? "Task not found"

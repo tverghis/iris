@@ -3,9 +3,11 @@ import {
 	SortableContext,
 	verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
+import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import type { BoardColumn as BoardColumnData } from "@/api/types";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
 	COLUMN_TITLES,
 	columnDropId,
@@ -20,6 +22,10 @@ interface Props {
 	column: BoardColumnData;
 	userNames: ReadonlyMap<number, string>;
 	onOpenTask: (taskId: number) => void;
+	/** Stacked mobile layout: the header becomes a toggle for the section. */
+	collapsible?: boolean;
+	collapsed?: boolean;
+	onToggleCollapsed?: (status: BoardColumnData["status"]) => void;
 }
 
 export function BoardColumn({
@@ -27,6 +33,9 @@ export function BoardColumn({
 	column,
 	userNames,
 	onOpenTask,
+	collapsible = false,
+	collapsed = false,
+	onToggleCollapsed,
 }: Props) {
 	const { status } = column;
 	const title = COLUMN_TITLES[status];
@@ -35,28 +44,52 @@ export function BoardColumn({
 	const tasks = isDone ? sortDone(column.tasks) : column.tasks;
 	const visible = isDone ? tasks.slice(0, limit) : tasks;
 	const { setNodeRef } = useDroppable({ id: columnDropId(status) });
+	const isCollapsed = collapsible && collapsed;
 
 	return (
 		<section
 			ref={setNodeRef}
 			aria-label={title}
 			data-status={status}
-			className="flex max-h-full w-72 shrink-0 flex-col rounded-lg bg-muted/50 max-md:w-64"
+			className="flex w-full flex-col rounded-lg bg-muted/50 md:max-h-full md:min-w-[13rem] md:flex-1"
 		>
-			<h2 className="flex items-center justify-between px-3 pt-3 pb-2 text-sm font-semibold">
-				{title}
-				<span className="text-xs font-normal text-muted-foreground">
-					{tasks.length}
-				</span>
+			<h2 className="text-sm font-semibold">
+				{collapsible ? (
+					<button
+						type="button"
+						aria-expanded={!isCollapsed}
+						onClick={() => onToggleCollapsed?.(status)}
+						className="flex min-h-11 w-full items-center justify-between gap-2 rounded-lg px-3 text-left font-semibold outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+					>
+						<span className="flex items-center gap-1.5">
+							<ChevronDown
+								aria-hidden
+								className={cn("size-4", isCollapsed && "-rotate-90")}
+							/>
+							{title}
+						</span>
+						<span className="text-xs font-normal text-muted-foreground">
+							{tasks.length}
+						</span>
+					</button>
+				) : (
+					<div className="flex items-center justify-between px-3 pt-3 pb-2">
+						{title}
+						<span className="text-xs font-normal text-muted-foreground">
+							{tasks.length}
+						</span>
+					</div>
+				)}
 			</h2>
-			{(status === "backlog" || status === "ready") && (
+			{!isCollapsed && (status === "backlog" || status === "ready") && (
 				<div className="px-2 pb-2">
 					<QuickAdd projectId={projectId} status={status} label={title} />
 				</div>
 			)}
 			<div
 				data-column-scroll
-				className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-2 pb-2"
+				hidden={isCollapsed}
+				className="flex min-h-0 flex-1 flex-col gap-2 px-2 pb-2 md:overflow-y-auto md:overscroll-contain"
 			>
 				<SortableContext
 					items={visible.map((t) => t.id)}

@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { useProjectStream } from "@/features/live/useProjectStream";
 import { TaskDrawerMount } from "@/features/task/TaskDrawerMount";
 import { useCurrentUserId } from "@/lib/currentUser";
+import { useIsMobile } from "@/lib/useMediaQuery";
 import { BoardColumn } from "./BoardColumn";
 import {
 	type BoardFilter,
@@ -28,6 +29,7 @@ import {
 import { useBoardSensors } from "./dndSensors";
 import { TaskCardOverlay } from "./TaskCard";
 import { useBoard, useMoveTask, useUsers } from "./useBoard";
+import { useColumnCollapse } from "./useColumnCollapse";
 
 const FILTERS: { value: BoardFilter; label: string }[] = [
 	{ value: "mine", label: "Mine" },
@@ -65,6 +67,8 @@ export function BoardView({ projectId }: { projectId: number }) {
 		() => (columns ? filterColumns(columns, filter, currentUserId) : []),
 		[columns, filter, currentUserId],
 	);
+	const isMobile = useIsMobile();
+	const collapse = useColumnCollapse(projectId);
 	const sensors = useBoardSensors();
 	const { move } = useMoveTask(projectId);
 	const [drag, setDrag] = useState<DragState | null>(null);
@@ -164,7 +168,7 @@ export function BoardView({ projectId }: { projectId: number }) {
 	}
 
 	return (
-		<div className="flex h-[calc(100dvh-8rem)] min-h-96 flex-col gap-3">
+		<div className="flex flex-col gap-3 md:h-[calc(100dvh-8rem)] md:min-h-96">
 			<header className="flex flex-wrap items-center gap-x-4 gap-y-2">
 				<h1 className="text-xl font-semibold">{project.name}</h1>
 				<Link
@@ -190,7 +194,7 @@ export function BoardView({ projectId }: { projectId: number }) {
 			</header>
 			<div
 				data-board-scroll
-				className="flex min-h-0 flex-1 gap-3 overflow-x-auto overscroll-x-contain pb-2"
+				className="flex min-h-0 flex-1 flex-col gap-3 pb-2 md:flex-row md:overflow-x-auto md:overscroll-x-contain"
 			>
 				<DndContext
 					sensors={sensors}
@@ -207,6 +211,9 @@ export function BoardView({ projectId }: { projectId: number }) {
 							column={column}
 							userNames={userNames}
 							onOpenTask={openTask}
+							collapsible={isMobile}
+							collapsed={collapse.isCollapsed(column.status)}
+							onToggleCollapsed={collapse.toggle}
 						/>
 					))}
 					<DragOverlay dropAnimation={null}>
