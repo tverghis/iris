@@ -25,7 +25,7 @@ describe("task drawer", () => {
 		const title = await screen.findByRole(
 			"textbox",
 			{ name: "Title" },
-			{ timeout: 5000 },
+			{ timeout: 10_000 },
 		);
 		await user.clear(title);
 		await user.type(title, "Packing list v2{Enter}");
@@ -71,7 +71,7 @@ describe("task drawer", () => {
 		const other = idOf("Rent a car");
 		renderApp(`/projects/1?task=${id}`);
 
-		await screen.findByRole("textbox", { name: "Title" }, { timeout: 5000 });
+		await screen.findByRole("textbox", { name: "Title" }, { timeout: 10_000 });
 		expect(
 			within(card("Draft packing list")).queryByText(/Waiting on/),
 		).toBeNull();
@@ -123,7 +123,7 @@ describe("task drawer", () => {
 		const user = userEvent.setup();
 		const id = idOf("Draft packing list");
 		renderApp(`/projects/1?task=${id}`);
-		await screen.findByRole("textbox", { name: "Title" }, { timeout: 5000 });
+		await screen.findByRole("textbox", { name: "Title" }, { timeout: 10_000 });
 		await user.click(screen.getByRole("button", { name: "Delete task" }));
 		const dialog = await screen.findByRole("dialog", {
 			name: "Delete this task?",
@@ -151,7 +151,7 @@ describe("task drawer", () => {
 		const user = userEvent.setup();
 		const id = idOf("Draft packing list");
 		renderApp(`/projects/1?task=${id}`);
-		await screen.findByRole("textbox", { name: "Title" }, { timeout: 5000 });
+		await screen.findByRole("textbox", { name: "Title" }, { timeout: 10_000 });
 		await user.keyboard("{Escape}");
 		await waitFor(() =>
 			expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),

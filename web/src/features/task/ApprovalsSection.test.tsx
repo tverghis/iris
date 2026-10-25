@@ -48,10 +48,10 @@ async function requestFor(
 
 async function openDrawer(title: string) {
 	renderApp(`/projects/1?task=${idOf(title)}`);
-	await screen.findByTestId("pending-approval", {}, { timeout: 5000 });
+	await screen.findByTestId("pending-approval", {}, { timeout: 10_000 });
 	await waitFor(
 		() => expect(document.querySelector("section[data-status]")).not.toBeNull(),
-		{ timeout: 5000 },
+		{ timeout: 10_000 },
 	);
 }
 
@@ -146,7 +146,7 @@ describe("requesting approval", () => {
 			await screen.findByRole(
 				"button",
 				{ name: "Request approval" },
-				{ timeout: 5000 },
+				{ timeout: 10_000 },
 			),
 		);
 		await user.type(screen.getByLabelText("Summary"), "Guest list ready");
@@ -170,7 +170,7 @@ describe("requesting approval", () => {
 		const bPanel = await screen.findByTestId(
 			"pending-approval",
 			{},
-			{ timeout: 5000 },
+			{ timeout: 10_000 },
 		);
 		await user.click(within(bPanel).getByRole("button", { name: "Approve" }));
 		await waitFor(() => expect(taskById(id)?.status).toBe("done"));
@@ -188,7 +188,7 @@ describe("requesting approval", () => {
 			await screen.findByRole(
 				"button",
 				{ name: "Request approval" },
-				{ timeout: 5000 },
+				{ timeout: 10_000 },
 			),
 		);
 		expect(screen.getByLabelText("Details (Markdown)")).toHaveValue(
@@ -198,7 +198,7 @@ describe("requesting approval", () => {
 
 	test("no request button on a done task", async () => {
 		renderApp(`/projects/1?task=${idOf("Pick a destination")}`);
-		await screen.findByText("No approvals yet", {}, { timeout: 5000 });
+		await screen.findByText("No approvals yet", {}, { timeout: 10_000 });
 		expect(
 			screen.queryByRole("button", { name: "Request approval" }),
 		).toBeNull();

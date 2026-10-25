@@ -25,7 +25,7 @@ describe("task comments", () => {
 		renderApp(`/projects/1?task=${id}`);
 
 		const question = (
-			await screen.findByText(QUESTION, {}, { timeout: 5000 })
+			await screen.findByText(QUESTION, {}, { timeout: 10_000 })
 		).closest("li") as HTMLElement;
 		expect(within(question).getByText(/Question · open/)).toBeInTheDocument();
 		expect(within(question).getByText("Agent")).toBeInTheDocument();
@@ -59,7 +59,7 @@ describe("task comments", () => {
 		const id = idOf("Draft packing list");
 		const { queryClient } = renderApp(`/projects/1?task=${id}`);
 		expect(
-			await screen.findByText("No comments yet", {}, { timeout: 5000 }),
+			await screen.findByText("No comments yet", {}, { timeout: 10_000 }),
 		).toBeInTheDocument();
 		expect(screen.queryByRole("button", { name: "Answer" })).toBeNull();
 

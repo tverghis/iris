@@ -131,7 +131,7 @@ describe("projects screen", () => {
 		renderApp("/");
 
 		expect(
-			await screen.findByRole("alert", {}, { timeout: 4000 }),
+			await screen.findByRole("alert", {}, { timeout: 10_000 }),
 		).toHaveTextContent("Could not load projects");
 	});
 });

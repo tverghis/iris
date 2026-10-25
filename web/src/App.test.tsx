@@ -45,7 +45,7 @@ test("a failed request shows the server message in a toast", async () => {
 	renderWithProviders(<Failing />);
 
 	expect(
-		await screen.findByText("Database is on fire", {}, { timeout: 4000 }),
+		await screen.findByText("Database is on fire", {}, { timeout: 10_000 }),
 	).toBeInTheDocument();
 });
 

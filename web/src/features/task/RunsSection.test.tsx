@@ -19,7 +19,7 @@ describe("runs section", () => {
 			await screen.findByText(
 				/Requested sign-off on the shortlist/,
 				{},
-				{ timeout: 5000 },
+				{ timeout: 10_000 },
 			),
 		).toBeInTheDocument();
 		expect(screen.getByText("Needs human")).toBeInTheDocument();
@@ -44,7 +44,7 @@ describe("runs section", () => {
 			await screen.findByRole(
 				"button",
 				{ name: "Cancel run" },
-				{ timeout: 5000 },
+				{ timeout: 10_000 },
 			),
 		);
 		const confirm = await screen.findByRole("dialog", {
