@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { queryKeys } from "@/api/queryKeys";
-import type { Board, Comment, Task } from "@/api/types";
-import { upsertCard } from "@/features/live/applyEvent";
+import type { Comment, Task } from "@/api/types";
+import { saveNoteAfterAnswer } from "@/features/context/hooks";
 import { getCurrentUserId } from "@/lib/currentUser";
 import { toastError } from "@/lib/toast";
+import { refreshTask } from "./useTask";
 
 export function useComments(taskId: number) {
 	return useQuery({
@@ -22,6 +23,8 @@ export type NewComment = {
 	bodyMd: string;
 	kind: "comment" | "answer";
 	replyToId?: number;
+	/** Also keep the text as a project note (answers only). */
+	saveAsNote?: boolean;
 };
 
 let tempId = 0;
@@ -30,17 +33,19 @@ export function usePostComment(task: Task, authorName: string | undefined) {
 	const queryClient = useQueryClient();
 	const key = queryKeys.tasks.comments(task.id);
 	return useMutation({
-		mutationFn: async (c: NewComment) =>
-			(
+		mutationFn: async (c: NewComment) => {
+			const saved = (
 				await api.POST("/api/tasks/{id}/comments", {
 					params: { path: { id: task.id } },
 					body: { kind: c.kind, bodyMd: c.bodyMd, replyToId: c.replyToId },
 				})
-			).data as Comment,
+			).data as Comment;
+			if (c.saveAsNote) await saveNoteAfterAnswer(task.projectId, c.bodyMd);
+			return saved;
+		},
 		meta: { silent: true },
 		onMutate: async (c) => {
 			await queryClient.cancelQueries({ queryKey: key });
-			const previous = queryClient.getQueryData<Comment[]>(key);
 			const optimistic: Comment = {
 				id: --tempId,
 				taskId: task.id,
@@ -59,13 +64,16 @@ export function usePostComment(task: Task, authorName: string | undefined) {
 				...(old ?? []),
 				optimistic,
 			]);
-			return { previous, tempId: optimistic.id };
+			return { tempId: optimistic.id };
 		},
 		onError: (e, _c, ctx) => {
-			queryClient.setQueryData(key, ctx?.previous);
+			// Drop only the placeholder; the list may have changed since.
+			queryClient.setQueryData<Comment[]>(key, (old) =>
+				old?.filter((x) => x.id !== ctx?.tempId),
+			);
 			toastError(e instanceof Error ? e.message : "Could not post the comment");
 		},
-		onSuccess: async (saved, c, ctx) => {
+		onSuccess: (saved, c, ctx) => {
 			queryClient.setQueryData<Comment[]>(key, (old) =>
 				old
 					?.filter((x) => x.id !== saved.id)
@@ -76,34 +84,16 @@ export function usePostComment(task: Task, authorName: string | undefined) {
 			);
 			if (c.kind === "answer") {
 				queryClient.invalidateQueries({ queryKey: queryKeys.questions.all });
-				// The answer returns the task to Ready: refetch just this task and patch its card.
-				const fresh = (
-					await api.GET("/api/tasks/{id}", {
-						params: { path: { id: task.id } },
-					})
-				).data as Task;
-				queryClient.setQueryData(queryKeys.tasks.detail(task.id), fresh);
-				queryClient.setQueryData<Board>(
-					queryKeys.projects.board(task.projectId),
-					(board) => board && upsertCard(board, fresh),
-				);
+				// The answer returns the task to Ready; the card follows.
+				void refreshTask(queryClient, task.projectId, task.id);
 			}
 		},
-	});
-}
-
-export function useSaveNote(projectId: number) {
-	const queryClient = useQueryClient();
-	return useMutation({
-		mutationFn: async (bodyMd: string) => {
-			await api.POST("/api/projects/{id}/notes", {
-				params: { path: { id: projectId } },
-				body: { bodyMd },
-			});
+		onSettled: (_data, _error, c) => {
+			if (c.saveAsNote) {
+				queryClient.invalidateQueries({
+					queryKey: queryKeys.projects.notes(task.projectId),
+				});
+			}
 		},
-		onSuccess: () =>
-			queryClient.invalidateQueries({
-				queryKey: queryKeys.projects.notes(projectId),
-			}),
 	});
 }

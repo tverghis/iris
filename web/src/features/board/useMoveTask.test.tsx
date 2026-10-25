@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { expect, test } from "vitest";
 import { api } from "@/api/client";
+import { queryKeys } from "@/api/queryKeys";
 import type { Board } from "@/api/types";
 import { db, taskById } from "@/mocks/db";
 import { server } from "@/mocks/server";
@@ -98,4 +99,80 @@ test("a rejected move rolls back and shows the server's reason once", async () =
 	expect(text("backlog")).toContain("Travel insurance quotes");
 	expect(screen.getAllByText(reason)).toHaveLength(1);
 	expect(taskById(idOf("Travel insurance quotes"))?.status).toBe("backlog");
+});
+
+function TwoMoves({ a, b }: { a: MoveVars; b: MoveVars }) {
+	const { columns } = useBoard(1);
+	const { move } = useMoveTask(1);
+	return (
+		<>
+			<button type="button" onClick={() => move(a)}>
+				move A
+			</button>
+			<button type="button" onClick={() => move(b)}>
+				move B
+			</button>
+			{columns?.map((c) => (
+				<output key={c.status} data-testid={c.status}>
+					{c.tasks.map((t) => t.title).join("|")}
+				</output>
+			))}
+		</>
+	);
+}
+
+test("a rejected move only puts back its own card, not a snapshot over a later move", async () => {
+	const reason = "Nope";
+	const b = idOf("Travel insurance quotes");
+	let release = () => {};
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	server.use(
+		http.post("/api/tasks/:id/move", async ({ params }) => {
+			if (Number(params.id) !== b) return undefined;
+			await gate;
+			return HttpResponse.json({ message: reason }, { status: 409 });
+		}),
+	);
+	const user = userEvent.setup();
+	renderWithProviders(
+		<TwoMoves
+			a={{ taskId: idOf("Rent a car"), status: "ready", afterTaskId: null }}
+			b={{ taskId: b, status: "in_progress", afterTaskId: null }}
+		/>,
+	);
+	await waitFor(() => expect(text("backlog")).toContain("Rent a car"));
+	await user.click(screen.getByRole("button", { name: "move B" }));
+	await user.click(screen.getByRole("button", { name: "move A" }));
+	await waitFor(() =>
+		expect(taskById(idOf("Rent a car"))?.status).toBe("ready"),
+	);
+
+	release();
+	expect(await screen.findByText(reason)).toBeInTheDocument();
+	expect(text("ready")).toMatch(/^Rent a car\|/);
+	expect(text("backlog")).toContain("Travel insurance quotes");
+	expect(text("in_progress")).not.toContain("Travel insurance quotes");
+});
+
+test("a settled move marks the projects list (its counts) stale", async () => {
+	const user = userEvent.setup();
+	const { queryClient } = renderWithProviders(
+		<Harness
+			vars={{
+				taskId: idOf("Rent a car"),
+				status: "ready",
+				afterTaskId: null,
+			}}
+		/>,
+	);
+	await waitFor(() => expect(text("backlog")).toContain("Rent a car"));
+	queryClient.setQueryData(queryKeys.projects.list(), []);
+	await user.click(screen.getByRole("button", { name: "move" }));
+	await waitFor(() =>
+		expect(
+			queryClient.getQueryState(queryKeys.projects.list())?.isInvalidated,
+		).toBe(true),
+	);
 });

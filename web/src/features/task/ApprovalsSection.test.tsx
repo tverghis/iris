@@ -3,7 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { delay, HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, test } from "vitest";
 import { api } from "@/api/client";
-import type { ApprovalKind } from "@/api/types";
+import { queryKeys } from "@/api/queryKeys";
+import type { ApprovalKind, Board, Task } from "@/api/types";
 import { db, taskById } from "@/mocks/db";
 import { server } from "@/mocks/server";
 import { renderApp } from "@/testUtils";
@@ -47,12 +48,13 @@ async function requestFor(
 }
 
 async function openDrawer(title: string) {
-	renderApp(`/projects/1?task=${idOf(title)}`);
+	const { queryClient } = renderApp(`/projects/1?task=${idOf(title)}`);
 	await screen.findByTestId("pending-approval", {}, { timeout: 10_000 });
 	await waitFor(
 		() => expect(document.querySelector("section[data-status]")).not.toBeNull(),
 		{ timeout: 10_000 },
 	);
+	return queryClient;
 }
 
 const TITLE = "Compare accommodation options";
@@ -120,6 +122,32 @@ describe("approval decisions in the drawer", () => {
 		await waitFor(() => expect(taskById(idOf(TITLE))?.status).toBe("done"));
 	});
 
+	test("the optimistic move never stamps a client-clock updatedAt", async () => {
+		server.use(
+			http.post("/api/approvals/:id/decide", async () => {
+				await delay(300);
+				return undefined;
+			}),
+		);
+		const user = userEvent.setup();
+		await requestFor(TITLE, "sign_off");
+		const queryClient = await openDrawer(TITLE);
+		const id = idOf(TITLE);
+		const stamp = () => ({
+			card: queryClient
+				.getQueryData<Board>(queryKeys.projects.board(1))
+				?.columns.flatMap((c) => c.tasks)
+				.find((t) => t.id === id)?.updatedAt,
+			detail: queryClient.getQueryData<Task>(queryKeys.tasks.detail(id))
+				?.updatedAt,
+		});
+		const before = stamp();
+		await user.click(screen.getByRole("button", { name: "Approve" }));
+		expect(column("Done").getByText(TITLE)).toBeInTheDocument();
+		expect(stamp()).toEqual(before);
+		await waitFor(() => expect(taskById(id)?.status).toBe("done"));
+	});
+
 	test("a failed decision rolls the card back", async () => {
 		server.use(
 			http.post("/api/approvals/:id/decide", () =>
@@ -177,6 +205,61 @@ describe("requesting approval", () => {
 		expect(taskById(id)?.outputMd).toBe("Alice, Bob");
 		expect(column("Done").getByText(TITLE)).toBeInTheDocument();
 		expect(db.approvals.at(-1)?.decidedBy).toMatchObject({ kind: "user" });
+	});
+
+	test("a failed request keeps the form and what was typed", async () => {
+		server.use(
+			http.post("/api/tasks/:id/approvals", () =>
+				HttpResponse.json({ message: "Cannot request" }, { status: 500 }),
+			),
+		);
+		const user = userEvent.setup();
+		renderApp(`/projects/1?task=${idOf(TITLE)}`);
+		await user.click(
+			await screen.findByRole(
+				"button",
+				{ name: "Request approval" },
+				{ timeout: 10_000 },
+			),
+		);
+		await user.type(screen.getByLabelText("Summary"), "Guest list ready");
+		await user.click(screen.getByRole("button", { name: "Send for approval" }));
+
+		expect(await screen.findByText("Cannot request")).toBeInTheDocument();
+		expect(screen.getByLabelText("Summary")).toBeVisible();
+		expect(screen.getByLabelText("Summary")).toHaveValue("Guest list ready");
+		expect(screen.queryByTestId("pending-approval")).toBeNull();
+		await waitFor(() =>
+			expect(column("Ready").getByText(TITLE)).toBeInTheDocument(),
+		);
+	});
+
+	test("while the request is on its way the pending approval is already shown", async () => {
+		server.use(
+			http.post("/api/tasks/:id/approvals", async () => {
+				await delay(500);
+				return undefined;
+			}),
+		);
+		const user = userEvent.setup();
+		renderApp(`/projects/1?task=${idOf(TITLE)}`);
+		await user.click(
+			await screen.findByRole(
+				"button",
+				{ name: "Request approval" },
+				{ timeout: 10_000 },
+			),
+		);
+		await user.type(screen.getByLabelText("Summary"), "Guest list ready");
+		await user.click(screen.getByRole("button", { name: "Send for approval" }));
+
+		const panel = await screen.findByTestId("pending-approval");
+		expect(within(panel).getByText("Guest list ready")).toBeInTheDocument();
+		expect(screen.queryByLabelText("Summary")).not.toBeVisible();
+		expect(
+			await screen.findByRole("button", { name: "Approve" }),
+		).toBeVisible();
+		expect(db.approvals.at(-1)?.state).toBe("pending");
 	});
 
 	test("the request form is hidden when pending or done, and prefilled from output", async () => {

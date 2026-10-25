@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DecisionForm } from "@/features/approvals/DecisionForm";
 import { KIND_LABELS } from "@/features/approvals/decisions";
-import { relativeTime } from "./relativeTime";
+import { relativeTime } from "@/lib/relativeTime";
 import { actorName } from "./useInbox";
 import { useAnswerQuestion, useDecideApproval } from "./useInboxMutations";
 

@@ -10,8 +10,9 @@ import { queryKeys } from "@/api/queryKeys";
 import type { Board, Task, TaskCard, TaskStatus, User } from "@/api/types";
 import { upsertCard } from "@/features/live/applyEvent";
 import { toastError } from "@/lib/toast";
-import { moveTaskInColumns, replaceCard } from "./boardModel";
+import { replaceCard, taskToCard } from "./boardModel";
 import { consumeBoardPrefetch } from "./boardPrefetch";
+import { changeCard, type Undo } from "./optimisticCard";
 
 /** Loads the board; `columns` is the seam drag and drop will read and update. */
 export function useBoard(projectId: number) {
@@ -50,7 +51,7 @@ export function addTaskToBoard(
 ) {
 	queryClient.setQueryData<Board>(
 		queryKeys.projects.board(projectId),
-		(board) => board && upsertCard(board, task),
+		(board) => board && upsertCard(board, taskToCard(task)),
 	);
 }
 
@@ -74,16 +75,19 @@ export interface MoveVars {
 	afterTaskId: number | null;
 }
 
-interface Snapshot {
-	snapshot?: Board;
+interface Undoable {
+	undo: Undo;
 }
 
-/** Optimistic move: reorder in the cache at once, roll back on rejection. */
+const MOVE_KEY = ["board", "move"] as const;
+
+/** Optimistic move: reorder in the cache at once, put back only that card on rejection. */
 export function useMoveTask(projectId: number) {
 	const queryClient = useQueryClient();
 	const key = queryKeys.projects.board(projectId);
 	const { mutate } = useMutation({
-		mutationFn: async ({ taskId, status, afterTaskId }: MoveVars & Snapshot) =>
+		mutationKey: MOVE_KEY,
+		mutationFn: async ({ taskId, status, afterTaskId }: MoveVars & Undoable) =>
 			(
 				await api.POST("/api/tasks/{id}/move", {
 					params: { path: { id: taskId } },
@@ -91,9 +95,13 @@ export function useMoveTask(projectId: number) {
 				})
 			).data as TaskCard,
 		meta: { silent: true },
-		onError: (error, { snapshot }) => {
-			if (snapshot) queryClient.setQueryData(key, snapshot);
+		onError: (error, { undo }) => {
+			undo();
 			toastError(error.message || "Could not move the task");
+			// Resync once the last in-flight move is done, so it cannot undo another's optimism.
+			if (queryClient.isMutating({ mutationKey: MOVE_KEY }) <= 1) {
+				queryClient.invalidateQueries({ queryKey: key });
+			}
 		},
 		onSuccess: (card) =>
 			queryClient.setQueryData<Board>(
@@ -101,30 +109,22 @@ export function useMoveTask(projectId: number) {
 				(board) =>
 					board && { ...board, columns: replaceCard(board.columns, card) },
 			),
+		onSettled: () =>
+			queryClient.invalidateQueries({ queryKey: queryKeys.projects.lists }),
 	});
 
 	// The cache is updated synchronously (not in onMutate) so the card never
 	// flashes back to its old place between the drop and the optimistic render.
 	const move = useCallback(
 		(vars: MoveVars) => {
-			const snapshot = queryClient.getQueryData<Board>(key);
 			void queryClient.cancelQueries({ queryKey: key });
-			queryClient.setQueryData<Board>(
-				key,
-				(board) =>
-					board && {
-						...board,
-						columns: moveTaskInColumns(
-							board.columns,
-							vars.taskId,
-							vars.status,
-							vars.afterTaskId,
-						),
-					},
-			);
-			mutate({ ...vars, snapshot });
+			const undo = changeCard(queryClient, projectId, vars.taskId, {
+				status: vars.status,
+				afterTaskId: vars.afterTaskId,
+			});
+			mutate({ ...vars, undo });
 		},
-		[queryClient, key, mutate],
+		[queryClient, projectId, key, mutate],
 	);
 	return { move };
 }

@@ -10,7 +10,7 @@ import { useCurrentUserId } from "@/lib/currentUser";
 import { relativeTime } from "@/lib/relativeTime";
 import { cn } from "@/lib/utils";
 import { DrawerSection } from "./TaskDrawer";
-import { useComments, usePostComment, useSaveNote } from "./useComments";
+import { useComments, usePostComment } from "./useComments";
 
 function authorName(c: Comment) {
 	if (c.author.kind === "agent") return "Agent";
@@ -86,7 +86,6 @@ export function CommentsSection({ task }: { task: Task }) {
 	const userId = useCurrentUserId();
 	const me = users?.find((u) => u.id === userId)?.name;
 	const post = usePostComment(task, me);
-	const saveNote = useSaveNote(task.projectId);
 	const [text, setText] = useState("");
 	const [replyTo, setReplyTo] = useState<Comment | null>(null);
 	const [asNote, setAsNote] = useState(false);
@@ -100,18 +99,26 @@ export function CommentsSection({ task }: { task: Task }) {
 
 	const submit = () => {
 		const bodyMd = text.trim();
-		if (!bodyMd) return;
+		if (!bodyMd || post.isPending) return;
 		const answering = reply ? replyTo : null;
-		const note = answering && asNote;
 		post.mutate(
 			answering
-				? { kind: "answer", bodyMd, replyToId: answering.id }
+				? {
+						kind: "answer",
+						bodyMd,
+						replyToId: answering.id,
+						saveAsNote: asNote,
+					}
 				: { kind: "comment", bodyMd },
-			{ onSuccess: () => note && saveNote.mutate(bodyMd) },
+			{
+				// Keep the text until the server has it, so a failure loses nothing.
+				onSuccess: () => {
+					setText("");
+					setReplyTo(null);
+					setAsNote(false);
+				},
+			},
 		);
-		setText("");
-		setReplyTo(null);
-		setAsNote(false);
 	};
 
 	return (
@@ -180,7 +187,11 @@ export function CommentsSection({ task }: { task: Task }) {
 					) : (
 						<span />
 					)}
-					<Button type="button" disabled={!text.trim()} onClick={submit}>
+					<Button
+						type="button"
+						disabled={!text.trim() || post.isPending}
+						onClick={submit}
+					>
 						{reply ? "Answer question" : "Comment"}
 					</Button>
 				</div>

@@ -1,8 +1,12 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { delay, HttpResponse, http } from "msw";
 import { describe, expect, test } from "vitest";
-import type { Task } from "@/api/types";
+import { queryKeys } from "@/api/queryKeys";
+import type { Board, Task } from "@/api/types";
+import { handleStreamEvent } from "@/features/live/handleEvent";
 import { db } from "@/mocks/db";
+import { server } from "@/mocks/server";
 import { renderApp } from "@/testUtils";
 
 const idOf = (title: string) =>
@@ -156,5 +160,67 @@ describe("task drawer", () => {
 		await waitFor(() =>
 			expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
 		);
+	});
+
+	test("a failed edit puts back only its own fields, not newer data from the stream", async () => {
+		const user = userEvent.setup();
+		const id = idOf("Draft packing list");
+		server.use(
+			http.patch("/api/tasks/:id", async () => {
+				await delay(300);
+				return HttpResponse.json({ message: "No edits" }, { status: 500 });
+			}),
+		);
+		const { queryClient } = renderApp(`/projects/1?task=${id}`);
+		const title = await screen.findByRole(
+			"textbox",
+			{ name: "Title" },
+			{ timeout: 10_000 },
+		);
+		await waitFor(() => expect(card("Draft packing list")).toBeInTheDocument());
+		const original = db.tasks.find((t) => t.id === id)?.title as string;
+
+		await user.clear(title);
+		await user.type(title, "Renamed{Enter}");
+		expect(card("Renamed")).toBeInTheDocument();
+
+		// Meanwhile the server reports a newer state of the same card.
+		const board = queryClient.getQueryData<Board>(queryKeys.projects.board(1));
+		const current = board?.columns
+			.flatMap((c) => c.tasks)
+			.find((t) => t.id === id);
+		if (!current) throw new Error("card missing");
+		act(() =>
+			handleStreamEvent(queryClient, 1, {
+				type: "task.updated",
+				taskId: id,
+				task: {
+					...current,
+					waitingOn: 5,
+					updatedAt: new Date(Date.now() + 60_000).toISOString(),
+				},
+			}),
+		);
+
+		expect(await screen.findByText("No edits")).toBeInTheDocument();
+		expect(card(original)).toBeInTheDocument();
+		const after = queryClient
+			.getQueryData<Board>(queryKeys.projects.board(1))
+			?.columns.flatMap((c) => c.tasks)
+			.find((t) => t.id === id);
+		expect(after?.waitingOn).toBe(5);
+		expect(after?.title).toBe(original);
+	});
+
+	test("deleting the open task elsewhere shows Task not found", async () => {
+		const id = idOf("Draft packing list");
+		const { queryClient } = renderApp(`/projects/1?task=${id}`);
+		await screen.findByRole("textbox", { name: "Title" }, { timeout: 10_000 });
+		const index = db.tasks.findIndex((t) => t.id === id);
+		db.tasks.splice(index, 1);
+		act(() =>
+			handleStreamEvent(queryClient, 1, { type: "task.deleted", taskId: id }),
+		);
+		expect(await screen.findByText("Task not found")).toBeInTheDocument();
 	});
 });

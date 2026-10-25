@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { DecisionForm } from "@/features/approvals/DecisionForm";
 import { KIND_LABELS, STATE_LABELS } from "@/features/approvals/decisions";
 import {
+	PENDING_REQUEST_ID,
 	useDecideTaskApproval,
 	useRequestApproval,
 	useTaskApprovals,
@@ -53,29 +54,43 @@ function PendingPanel({
 			</div>
 			<p className="break-words text-sm font-medium">{approval.summary}</p>
 			<Payload approval={approval} />
-			<DecisionForm
-				onDecide={(decision, comment) =>
-					decide.mutate({ approval, decision, comment })
-				}
-			/>
+			{approval.id === PENDING_REQUEST_ID ? (
+				<p className="text-sm text-muted-foreground">Sending request…</p>
+			) : (
+				<DecisionForm
+					onDecide={(decision, comment) =>
+						decide.mutate({ approval, decision, comment })
+					}
+				/>
+			)}
 		</div>
 	);
 }
 
-function RequestForm({ task, users }: { task: Task; users: User[] }) {
+function RequestForm({
+	task,
+	users,
+	request,
+	hidden,
+}: {
+	task: Task;
+	users: User[];
+	request: ReturnType<typeof useRequestApproval>;
+	/** Stays mounted while the request is in flight, so a failure keeps what was typed. */
+	hidden: boolean;
+}) {
 	const [open, setOpen] = useState(false);
 	const [kind, setKind] = useState<"sign_off" | "proceed">("sign_off");
 	const [summary, setSummary] = useState("");
 	const [payload, setPayload] = useState(task.outputMd);
 	const [approver, setApprover] = useState("");
-	const request = useRequestApproval(task);
 	const ids = [useId(), useId(), useId(), useId()];
 	const fieldClass =
 		"h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
 	if (!open) {
 		return (
-			<div>
+			<div hidden={hidden}>
 				<Button type="button" variant="outline" onClick={() => setOpen(true)}>
 					Request approval
 				</Button>
@@ -85,18 +100,25 @@ function RequestForm({ task, users }: { task: Task; users: User[] }) {
 
 	return (
 		<form
+			hidden={hidden}
 			className="flex flex-col gap-3 rounded-lg border p-3"
 			onSubmit={(event) => {
 				event.preventDefault();
-				if (!summary.trim()) return;
-				request.mutate({
-					kind,
-					summary: summary.trim(),
-					payloadMd: payload,
-					approverUserId: approver ? Number(approver) : null,
-				});
-				setOpen(false);
-				setSummary("");
+				if (!summary.trim() || request.isPending) return;
+				request.mutate(
+					{
+						kind,
+						summary: summary.trim(),
+						payloadMd: payload,
+						approverUserId: approver ? Number(approver) : null,
+					},
+					{
+						onSuccess: () => {
+							setOpen(false);
+							setSummary("");
+						},
+					},
+				);
 			}}
 		>
 			<div className="flex flex-col gap-1.5">
@@ -212,6 +234,7 @@ function HistoryItem({
 export function ApprovalsSection({ task }: { task: Task }) {
 	const { data: users } = useUsers();
 	const { data: history } = useTaskApprovals(task.id);
+	const request = useRequestApproval(task);
 	const userList = users ?? [];
 	const pending = task.pendingApproval
 		? history?.find(
@@ -225,9 +248,16 @@ export function ApprovalsSection({ task }: { task: Task }) {
 			{pending && (
 				<PendingPanel task={task} approval={pending} users={userList} />
 			)}
-			{!task.pendingApproval && task.status !== "done" && (
-				<RequestForm key={task.id} task={task} users={userList} />
-			)}
+			{(!task.pendingApproval || request.isPending) &&
+				task.status !== "done" && (
+					<RequestForm
+						key={task.id}
+						task={task}
+						users={userList}
+						request={request}
+						hidden={request.isPending}
+					/>
+				)}
 			{past.length > 0 ? (
 				<ul className="flex flex-col gap-2" aria-label="Approval history">
 					{past.map((a) => (

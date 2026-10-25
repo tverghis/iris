@@ -7,6 +7,7 @@ import {
 import { api } from "@/api/client";
 import { queryKeys } from "@/api/queryKeys";
 import type { Note, NoteCreate, NotePatch, Project } from "@/api/types";
+import { toastError } from "@/lib/toast";
 
 export function sortNotes(notes: Note[]) {
 	return notes.toSorted(
@@ -56,16 +57,28 @@ export function useSaveBrief(projectId: number) {
 	});
 }
 
+async function createNote(projectId: number, body: NoteCreate) {
+	return (
+		await api.POST("/api/projects/{id}/notes", {
+			params: { path: { id: projectId } },
+			body,
+		})
+	).data as Note;
+}
+
+/** Keeps an answer as a project note. The answer is already recorded, so a failure here only warns. */
+export async function saveNoteAfterAnswer(projectId: number, bodyMd: string) {
+	try {
+		await createNote(projectId, { bodyMd });
+	} catch {
+		toastError("Answer sent, but saving the project note failed");
+	}
+}
+
 export function useCreateNote(projectId: number) {
 	const queryClient = useQueryClient();
 	return useMutation({
-		mutationFn: async (body: NoteCreate) =>
-			(
-				await api.POST("/api/projects/{id}/notes", {
-					params: { path: { id: projectId } },
-					body,
-				})
-			).data as Note,
+		mutationFn: (body: NoteCreate) => createNote(projectId, body),
 		onSettled: () =>
 			queryClient.invalidateQueries({
 				queryKey: queryKeys.projects.notes(projectId),

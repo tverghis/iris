@@ -7,5 +7,5 @@ export function Component() {
 	if (!Number.isInteger(id)) {
 		return <p className="text-sm">Project not found.</p>;
 	}
-	return <BoardView projectId={id} />;
+	return <BoardView key={id} projectId={id} />;
 }

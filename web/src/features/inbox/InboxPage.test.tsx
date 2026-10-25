@@ -3,11 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, test } from "vitest";
 import { api } from "@/api/client";
+import { queryKeys } from "@/api/queryKeys";
+import { relativeTime } from "@/lib/relativeTime";
 import { db } from "@/mocks/db";
 import { server } from "@/mocks/server";
 import { Component as InboxPage } from "@/routes/InboxPage";
 import { renderApp, renderWithProviders } from "@/testUtils";
-import { relativeTime } from "./relativeTime";
 
 const SEED_APPROVAL = "Five coastal towns that fit the brief";
 const SEED_QUESTION = /Do you prefer flying from the city airport/;
@@ -173,6 +174,25 @@ describe("Needs you inbox", () => {
 		const reply = db.comments.find((c) => c.kind === "answer");
 		expect(reply?.bodyMd).toBe("City");
 		expect(db.notes).toHaveLength(2);
+	});
+
+	test("answering refreshes the answered task's cached detail and comments", async () => {
+		const { queryClient } = renderWithProviders(<InboxPage />, "/inbox");
+		queryClient.setQueryData(queryKeys.tasks.detail(7), { id: 7 });
+		queryClient.setQueryData(queryKeys.tasks.comments(7), []);
+		const card = (await items()).find((c) => within(c).queryByText("Question"));
+		if (!card) throw new Error("question card missing");
+		await userEvent.type(within(card).getByLabelText("Your answer"), "City");
+		await userEvent.click(within(card).getByRole("button", { name: "Answer" }));
+
+		await waitFor(() =>
+			expect(
+				queryClient.getQueryState(queryKeys.tasks.detail(7))?.isInvalidated,
+			).toBe(true),
+		);
+		expect(
+			queryClient.getQueryState(queryKeys.tasks.comments(7))?.isInvalidated,
+		).toBe(true);
 	});
 
 	test("Also save as project note creates a note", async () => {

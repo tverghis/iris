@@ -1,7 +1,9 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { HttpResponse, http } from "msw";
 import { describe, expect, test } from "vitest";
 import { db } from "@/mocks/db";
+import { server } from "@/mocks/server";
 import { renderApp } from "@/testUtils";
 
 const idOf = (title: string) =>
@@ -78,5 +80,39 @@ describe("runs section", () => {
 		expect(
 			within(column("blocked")).getByText(/Research rail passes/),
 		).toBeInTheDocument();
+	});
+
+	test("a failing follow-up read after a successful cancel keeps the run cancelled", async () => {
+		const user = userEvent.setup();
+		const id = idOf("Research rail passes");
+		renderApp(`/projects/1?task=${id}`);
+		const cancel = await screen.findByRole(
+			"button",
+			{ name: "Cancel run" },
+			{ timeout: 10_000 },
+		);
+
+		let taskReads = 0;
+		server.use(
+			http.get("/api/tasks/:id", () => {
+				taskReads++;
+				return HttpResponse.json({ message: "down" }, { status: 500 });
+			}),
+		);
+		await user.click(cancel);
+		const confirm = await screen.findByRole("dialog", {
+			name: "Cancel this run?",
+		});
+		await user.click(
+			within(confirm).getByRole("button", { name: "Cancel run" }),
+		);
+
+		await waitFor(() => expect(taskReads).toBeGreaterThan(0));
+		expect(await screen.findByText("Cancelled")).toBeInTheDocument();
+		await waitFor(() =>
+			expect(db.runs.find((r) => r.taskId === id)?.state).toBe("cancelled"),
+		);
+		expect(screen.getByText("Cancelled")).toBeInTheDocument();
+		expect(screen.queryByText("down")).not.toBeInTheDocument();
 	});
 });

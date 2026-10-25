@@ -1,13 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRef } from "react";
 import { api } from "@/api/client";
 import { queryKeys } from "@/api/queryKeys";
-import type { Board, Run, Task } from "@/api/types";
-import { syncFromTask } from "./useTask";
+import type { Run } from "@/api/types";
+import {
+	changeCard,
+	combine,
+	patchTaskDetail,
+} from "@/features/board/optimisticCard";
+import { refreshTask } from "./useTask";
 
 const POLL_MS = 5000;
+/** Stop polling a run that has shown no change for this long (the stream and focus refetch still apply). */
+const POLL_GIVE_UP_MS = 10 * 60_000;
 
 /** Run history, newest first. Polls while a run is active, as a fallback for the live stream. */
 export function useRuns(taskId: number) {
+	const lastChange = useRef<{ data: Run[] | undefined; at: number }>({
+		data: undefined,
+		at: Date.now(),
+	});
 	return useQuery({
 		queryKey: queryKeys.tasks.runs(taskId),
 		queryFn: async () =>
@@ -16,8 +28,17 @@ export function useRuns(taskId: number) {
 					params: { path: { id: taskId } },
 				})
 			).data as Run[],
-		refetchInterval: (query) =>
-			query.state.data?.some((r) => r.state === "running") ? POLL_MS : false,
+		refetchInterval: (query) => {
+			const { data } = query.state;
+			// Structural sharing keeps the same array while the server data is unchanged.
+			if (lastChange.current.data !== data) {
+				lastChange.current = { data, at: Date.now() };
+			}
+			const stuck = Date.now() - lastChange.current.at > POLL_GIVE_UP_MS;
+			return !stuck && data?.some((r) => r.state === "running")
+				? POLL_MS
+				: false;
+		},
 		meta: { silent: true },
 	});
 }
@@ -40,42 +61,6 @@ export function useRunContext(runId: number, enabled: boolean) {
 export function useCancelRun(task: { id: number; projectId: number }) {
 	const queryClient = useQueryClient();
 	const runsKey = queryKeys.tasks.runs(task.id);
-	const boardKey = queryKeys.projects.board(task.projectId);
-	const detailKey = queryKeys.tasks.detail(task.id);
-
-	const setRunning = (running: boolean) => {
-		queryClient.setQueryData<Board>(
-			boardKey,
-			(board) =>
-				board && {
-					...board,
-					columns: board.columns.map((c) => ({
-						...c,
-						tasks: c.tasks.map((t) =>
-							t.id === task.id ? { ...t, running } : t,
-						),
-					})),
-				},
-		);
-		queryClient.setQueryData<Task>(detailKey, (t) => t && { ...t, running });
-	};
-
-	/** Moves the card to the column the server put the task in. */
-	const placeCard = (status: Task["status"]) =>
-		queryClient.setQueryData<Board>(boardKey, (board) => {
-			const card = board?.columns
-				.flatMap((c) => c.tasks)
-				.find((t) => t.id === task.id);
-			if (!board || !card || card.status === status) return board;
-			const moved = { ...card, status };
-			return {
-				...board,
-				columns: board.columns.map((c) => {
-					const rest = c.tasks.filter((t) => t.id !== task.id);
-					return { ...c, tasks: c.status === status ? [...rest, moved] : rest };
-				}),
-			};
-		});
 
 	return useMutation({
 		mutationFn: async (runId: number) =>
@@ -86,9 +71,9 @@ export function useCancelRun(task: { id: number; projectId: number }) {
 			).data as Run,
 		onMutate: async (runId) => {
 			await queryClient.cancelQueries({ queryKey: runsKey });
-			const runs = queryClient.getQueryData<Run[]>(runsKey);
-			const board = queryClient.getQueryData<Board>(boardKey);
-			const detail = queryClient.getQueryData<Task>(detailKey);
+			const before = queryClient
+				.getQueryData<Run[]>(runsKey)
+				?.find((r) => r.id === runId);
 			queryClient.setQueryData<Run[]>(runsKey, (list) =>
 				list?.map((r) =>
 					r.id === runId
@@ -96,31 +81,32 @@ export function useCancelRun(task: { id: number; projectId: number }) {
 						: r,
 				),
 			);
-			setRunning(false);
-			return { runs, board, detail };
+			const undoRun = () =>
+				queryClient.setQueryData<Run[]>(runsKey, (list) =>
+					list?.map((r) => (r.id === runId && before ? before : r)),
+				);
+			return {
+				undo: combine(
+					undoRun,
+					patchTaskDetail(queryClient, task.id, { running: false }),
+					changeCard(queryClient, task.projectId, task.id, {
+						fields: { running: false },
+					}),
+				),
+			};
 		},
-		onError: (_e, _id, ctx) => {
-			if (!ctx) return;
-			queryClient.setQueryData(runsKey, ctx.runs);
-			queryClient.setQueryData(boardKey, ctx.board);
-			queryClient.setQueryData(detailKey, ctx.detail);
-		},
-		onSuccess: async (run) => {
+		onError: (_e, _id, ctx) => ctx?.undo(),
+		onSuccess: (run) => {
 			queryClient.setQueryData<Run[]>(runsKey, (list) =>
 				list?.map((r) => (r.id === run.id ? run : r)),
 			);
-			// The server moves the card out of In Progress: refetch just this task and patch its card.
-			const { data } = await api.GET("/api/tasks/{id}", {
-				params: { path: { id: task.id } },
-			});
-			if (data) {
-				syncFromTask(queryClient, data as Task);
-				placeCard((data as Task).status);
-			}
+			// The server moves the card out of In Progress.
+			void refreshTask(queryClient, task.projectId, task.id);
 		},
 		onSettled: () => {
 			queryClient.invalidateQueries({ queryKey: runsKey });
 			queryClient.invalidateQueries({ queryKey: queryKeys.dispatch.status });
+			queryClient.invalidateQueries({ queryKey: queryKeys.projects.lists });
 		},
 	});
 }

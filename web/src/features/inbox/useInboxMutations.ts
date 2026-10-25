@@ -10,7 +10,7 @@ import type {
 	ApprovalInboxItem,
 	QuestionInboxItem,
 } from "@/api/types";
-import { toastError } from "@/lib/toast";
+import { saveNoteAfterAnswer } from "@/features/context/hooks";
 import { openQuestionsQuery, pendingApprovalsQuery } from "./useInbox";
 
 const MUTATION_KEY = ["inbox"] as const;
@@ -29,10 +29,7 @@ async function removeFromList<T>(
 	return { previous };
 }
 
-function refresh(
-	queryClient: QueryClient,
-	item: { task: { id: number }; project: { id: number } },
-) {
+function refresh(queryClient: QueryClient) {
 	// Refetch once the last in-flight inbox action settles, so an earlier
 	// response cannot briefly bring back an item that is still being removed.
 	if (queryClient.isMutating({ mutationKey: MUTATION_KEY }) > 1) return;
@@ -40,8 +37,7 @@ function refresh(
 		queryKeys.approvals.all,
 		queryKeys.questions.all,
 		queryKeys.projects.all, // list counts, boards, notes
-		queryKeys.tasks.comments(item.task.id),
-		queryKeys.tasks.approvals(item.task.id),
+		queryKeys.tasks.all, // details, comments and approvals of every touched task
 	]) {
 		queryClient.invalidateQueries({ queryKey });
 	}
@@ -74,7 +70,7 @@ export function useDecideApproval() {
 				pendingApprovalsQuery.queryKey,
 				context?.previous,
 			),
-		onSettled: (_data, _error, { item }) => refresh(queryClient, item),
+		onSettled: () => refresh(queryClient),
 	});
 }
 
@@ -92,16 +88,7 @@ export function useAnswerQuestion() {
 				params: { path: { id: item.task.id } },
 				body: { kind: "answer", replyToId: item.question.id, bodyMd },
 			});
-			if (!vars.saveAsNote) return;
-			// The answer is already recorded, so a failed note must not undo it.
-			try {
-				await api.POST("/api/projects/{id}/notes", {
-					params: { path: { id: item.project.id } },
-					body: { bodyMd },
-				});
-			} catch {
-				toastError("Answer sent, but saving the project note failed");
-			}
+			if (vars.saveAsNote) await saveNoteAfterAnswer(item.project.id, bodyMd);
 		},
 		onMutate: ({ item }) =>
 			removeFromList<QuestionInboxItem>(
@@ -111,6 +98,6 @@ export function useAnswerQuestion() {
 			),
 		onError: (_error, _vars, context) =>
 			queryClient.setQueryData(openQuestionsQuery.queryKey, context?.previous),
-		onSettled: (_data, _error, { item }) => refresh(queryClient, item),
+		onSettled: () => refresh(queryClient),
 	});
 }

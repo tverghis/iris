@@ -7,6 +7,13 @@ import {
 import { api } from "@/api/client";
 import { queryKeys } from "@/api/queryKeys";
 import type { Board, Task, TaskCard, TaskPatch } from "@/api/types";
+import { taskToCard } from "@/features/board/boardModel";
+import {
+	changeCard,
+	combine,
+	patchTaskDetail,
+} from "@/features/board/optimisticCard";
+import { upsertCard } from "@/features/live/applyEvent";
 
 export function useTask(id: number | null) {
 	return useQuery({
@@ -38,36 +45,39 @@ function mapCards(
 	);
 }
 
-function patchCard(
-	queryClient: QueryClient,
-	projectId: number,
-	id: number,
-	patch: Partial<TaskCard>,
-) {
-	mapCards(queryClient, projectId, (cards) =>
-		cards.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+/** Stores a server task in the detail cache and on the board (moving the card if its column changed). */
+export function syncFromTask(queryClient: QueryClient, task: Task) {
+	queryClient.setQueryData(queryKeys.tasks.detail(task.id), task);
+	queryClient.setQueryData<Board>(
+		queryKeys.projects.board(task.projectId),
+		(board) => board && upsertCard(board, taskToCard(task)),
 	);
 }
 
-/** Copies the card-level fields of a full task onto its board card. */
-export function syncFromTask(queryClient: QueryClient, task: Task) {
-	patchCard(queryClient, task.projectId, task.id, {
-		title: task.title,
-		assigneeKind: task.assigneeKind,
-		assigneeUserId: task.assigneeUserId,
-		requireSignOff: task.requireSignOff,
-		waitingOn: task.waitingOn,
-		running: task.running,
-		pendingApproval: task.pendingApproval,
-		updatedAt: task.updatedAt,
-	});
-	queryClient.setQueryData(queryKeys.tasks.detail(task.id), task);
+/**
+ * Re-reads one task after a mutation that already succeeded. Fire and forget:
+ * a failure here must never turn that success into an error.
+ */
+export async function refreshTask(
+	queryClient: QueryClient,
+	projectId: number,
+	taskId: number,
+) {
+	try {
+		const { data } = await api.GET("/api/tasks/{id}", {
+			params: { path: { id: taskId } },
+		});
+		if (data && (data as Task).projectId === projectId) {
+			syncFromTask(queryClient, data as Task);
+		}
+	} catch {
+		// The next event or refetch catches up.
+	}
 }
 
 export function useUpdateTask(task: Task) {
 	const queryClient = useQueryClient();
 	const detailKey = queryKeys.tasks.detail(task.id);
-	const boardKey = queryKeys.projects.board(task.projectId);
 	return useMutation({
 		mutationFn: async (patch: TaskPatch) =>
 			(
@@ -78,27 +88,24 @@ export function useUpdateTask(task: Task) {
 			).data as Task,
 		onMutate: async (patch) => {
 			await queryClient.cancelQueries({ queryKey: detailKey });
-			const board = queryClient.getQueryData<Board>(boardKey);
-			const previous = queryClient.getQueryData<Task>(detailKey);
 			const { descriptionMd: _d, outputMd: _o, ...cardPatch } = patch;
-			const optimistic: Partial<TaskCard> = {
+			const fields: Partial<TaskCard> = {
 				...cardPatch,
 				assigneeUserId: cardPatch.assigneeUserId ?? null,
 			};
 			if (patch.assigneeKind === undefined) {
-				delete optimistic.assigneeUserId;
+				delete fields.assigneeUserId;
 			}
-			queryClient.setQueryData<Task>(
-				detailKey,
-				(t) => t && { ...t, ...patch, ...optimistic },
-			);
-			patchCard(queryClient, task.projectId, task.id, optimistic);
-			return { previous, board };
+			return {
+				undo: combine(
+					patchTaskDetail(queryClient, task.id, { ...patch, ...fields }),
+					changeCard(queryClient, task.projectId, task.id, { fields }),
+				),
+			};
 		},
 		onError: (_e, _p, ctx) => {
-			if (!ctx) return;
-			queryClient.setQueryData(detailKey, ctx.previous);
-			queryClient.setQueryData(boardKey, ctx.board);
+			ctx?.undo();
+			queryClient.invalidateQueries({ queryKey: detailKey, exact: true });
 		},
 		onSuccess: (updated) => syncFromTask(queryClient, updated),
 	});

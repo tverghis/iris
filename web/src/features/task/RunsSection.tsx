@@ -1,5 +1,5 @@
 import { Check, Copy, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Run, RunState, Task } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,8 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { relativeTime } from "@/features/inbox/relativeTime";
+import { formatElapsed, useNow } from "@/features/dispatch/useDispatch";
+import { relativeTime } from "@/lib/relativeTime";
 import { cn } from "@/lib/utils";
 import { useCancelRun, useRunContext, useRuns } from "./useRuns";
 
@@ -45,24 +46,19 @@ export function RunStateBadge({ state }: { state: RunState }) {
 	);
 }
 
-export function formatDuration(startedAt: string, endedAt: string | null) {
-	const end = endedAt ? Date.parse(endedAt) : Date.now();
-	const s = Math.max(0, Math.round((end - Date.parse(startedAt)) / 1000));
-	if (s < 60) return `${s}s`;
-	const m = Math.floor(s / 60);
-	if (m < 60) return `${m}m ${s % 60}s`;
-	return `${Math.floor(m / 60)}h ${m % 60}m`;
-}
-
 const isUrl = (s: string) => /^https?:\/\/\S+$/i.test(s);
 
 function LogRef({ value }: { value: string }) {
 	const [copied, setCopied] = useState(false);
+	useEffect(() => {
+		if (!copied) return;
+		const id = setTimeout(() => setCopied(false), 1500);
+		return () => clearTimeout(id);
+	}, [copied]);
 	const copy = async () => {
 		try {
 			await navigator.clipboard.writeText(value);
 			setCopied(true);
-			setTimeout(() => setCopied(false), 1500);
 		} catch {
 			// Clipboard unavailable; the text stays selectable.
 		}
@@ -132,7 +128,7 @@ function ContextDialog({
 	);
 }
 
-function RunItem({ run, task }: { run: Run; task: Task }) {
+function RunItem({ run, task, now }: { run: Run; task: Task; now: number }) {
 	const [viewing, setViewing] = useState(false);
 	const [confirming, setConfirming] = useState(false);
 	const cancel = useCancelRun(task);
@@ -157,7 +153,10 @@ function RunItem({ run, task }: { run: Run; task: Task }) {
 					</>
 				) : null}
 				{" · "}
-				{formatDuration(run.startedAt, run.endedAt)}
+				{formatElapsed(
+					run.startedAt,
+					run.endedAt ? Date.parse(run.endedAt) : now,
+				)}
 			</p>
 			{run.summary && <p className="break-words">{run.summary}</p>}
 			{run.error && (
@@ -230,6 +229,7 @@ function RunItem({ run, task }: { run: Run; task: Task }) {
 
 export function RunsSectionBody({ task }: { task: Task }) {
 	const { data: runs, isPending, isError } = useRuns(task.id);
+	const now = useNow();
 	if (isPending && !isError) {
 		return <p className="text-sm text-muted-foreground">Loading…</p>;
 	}
@@ -239,7 +239,7 @@ export function RunsSectionBody({ task }: { task: Task }) {
 	return (
 		<ul className="flex flex-col gap-2">
 			{runs.map((run) => (
-				<RunItem key={run.id} run={run} task={task} />
+				<RunItem key={run.id} run={run} task={task} now={now} />
 			))}
 		</ul>
 	);

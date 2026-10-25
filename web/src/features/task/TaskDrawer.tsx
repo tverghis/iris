@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sheet";
 import { COLUMN_TITLES } from "@/features/board/boardModel";
 import { useUsers } from "@/features/board/useBoard";
-import { relativeTime } from "@/features/inbox/relativeTime";
+import { relativeTime } from "@/lib/relativeTime";
 import { ApprovalsSection } from "./ApprovalsSection";
 import { CommentsSection } from "./CommentsSection";
 import { DependencyPicker } from "./DependencyPicker";

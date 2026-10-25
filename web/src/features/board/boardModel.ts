@@ -1,4 +1,4 @@
-import type { BoardColumn, TaskCard, TaskStatus } from "@/api/types";
+import type { BoardColumn, Task, TaskCard, TaskStatus } from "@/api/types";
 
 export type BoardFilter = "all" | "mine" | "agent";
 
@@ -39,6 +39,29 @@ export function filterColumns(
 		...c,
 		tasks: c.tasks.filter((t) => matchesFilter(t, filter, userId)),
 	}));
+}
+
+/** The card-level fields of a full task, as the board stores them. */
+export function taskToCard(task: Task): TaskCard {
+	return {
+		id: task.id,
+		projectId: task.projectId,
+		title: task.title,
+		status: task.status,
+		position: task.position,
+		assigneeKind: task.assigneeKind,
+		assigneeUserId: task.assigneeUserId,
+		waitingOn: task.waitingOn,
+		pendingApproval: task.pendingApproval,
+		running: task.running,
+		requireSignOff: task.requireSignOff,
+		doneAt: task.doneAt,
+		updatedAt: task.updatedAt,
+	};
+}
+
+export function findCard(columns: BoardColumn[], taskId: number) {
+	return columns.flatMap((c) => c.tasks).find((t) => t.id === taskId);
 }
 
 /** Done cards, newest first. */

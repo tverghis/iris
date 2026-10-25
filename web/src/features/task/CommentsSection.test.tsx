@@ -1,8 +1,10 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, test } from "vitest";
 import { handleStreamEvent } from "@/features/live/handleEvent";
 import { agentActor, db } from "@/mocks/db";
+import { server } from "@/mocks/server";
 import { renderApp } from "@/testUtils";
 
 const QUESTION = /Do you prefer flying from the city airport/;
@@ -89,5 +91,53 @@ describe("task comments", () => {
 		expect(
 			await screen.findByText("Found a checklist online"),
 		).toBeInTheDocument();
+	});
+
+	test("a failing follow-up read after a successful answer does not undo the answer", async () => {
+		const user = userEvent.setup();
+		const id = idOf("Which airport do you prefer?");
+		renderApp(`/projects/1?task=${id}`);
+		const question = (
+			await screen.findByText(QUESTION, {}, { timeout: 10_000 })
+		).closest("li") as HTMLElement;
+
+		let taskReads = 0;
+		server.use(
+			http.get("/api/tasks/:id", () => {
+				taskReads++;
+				return HttpResponse.json({ message: "down" }, { status: 500 });
+			}),
+		);
+		await user.click(within(question).getByRole("button", { name: "Answer" }));
+		await user.type(screen.getByLabelText("Answer"), "The city airport");
+		await user.keyboard("{Control>}{Enter}{/Control}");
+
+		await waitFor(() => expect(taskReads).toBeGreaterThan(0));
+		await waitFor(() =>
+			expect(db.comments.filter((c) => c.kind === "answer")).toHaveLength(1),
+		);
+		expect(screen.getByText("The city airport")).toBeInTheDocument();
+		expect(screen.getByLabelText("New comment")).toHaveValue("");
+		expect(screen.queryByText("down")).not.toBeInTheDocument();
+		expect(screen.getByText(/Question · answered/)).toBeInTheDocument();
+	});
+
+	test("a failed comment keeps the typed text and removes the placeholder", async () => {
+		const user = userEvent.setup();
+		const id = idOf("Draft packing list");
+		server.use(
+			http.post("/api/tasks/:id/comments", () =>
+				HttpResponse.json({ message: "Comments are down" }, { status: 500 }),
+			),
+		);
+		renderApp(`/projects/1?task=${id}`);
+		await screen.findByText("No comments yet", {}, { timeout: 10_000 });
+
+		await user.type(screen.getByLabelText("New comment"), "Pack light");
+		await user.click(screen.getByRole("button", { name: "Comment" }));
+
+		expect(await screen.findByText("Comments are down")).toBeInTheDocument();
+		expect(screen.getByLabelText("New comment")).toHaveValue("Pack light");
+		expect(screen.getByText("No comments yet")).toBeInTheDocument();
 	});
 });

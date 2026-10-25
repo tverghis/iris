@@ -7,10 +7,19 @@ import { cn } from "@/lib/utils";
 import { useSaveBrief } from "./hooks";
 
 export function BriefEditor({ project }: { project: Project }) {
-	const [draft, setDraft] = useState(project.briefMd);
+	const server = project.briefMd;
+	// `base` is the server text the draft started from.
+	const [base, setBase] = useState(server);
+	const [draft, setDraft] = useState(server);
+	if (base !== server && (draft === base || draft === server)) {
+		// A clean draft (or one just saved) follows the server.
+		setBase(server);
+		setDraft(server);
+	}
 	const [tab, setTab] = useState<"edit" | "preview">("edit");
 	const save = useSaveBrief(project.id);
-	const dirty = draft !== project.briefMd;
+	const dirty = draft !== server;
+	const changedElsewhere = dirty && base !== server;
 	const panelId = useId();
 
 	useEffect(() => {
@@ -85,6 +94,18 @@ export function BriefEditor({ project }: { project: Project }) {
 				<span className="text-sm text-muted-foreground" aria-live="polite">
 					{dirty ? "Unsaved changes" : "Saved"}
 				</span>
+				{changedElsewhere && (
+					<span className="text-sm text-amber-700 dark:text-amber-400">
+						Brief changed elsewhere.{" "}
+						<button
+							type="button"
+							className="underline underline-offset-2"
+							onClick={() => setDraft(server)}
+						>
+							Use latest
+						</button>
+					</span>
+				)}
 				<span className="ml-auto hidden text-xs text-muted-foreground sm:inline">
 					Ctrl/Cmd+Enter to save
 				</span>
