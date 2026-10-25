@@ -17,7 +17,7 @@ import org.springframework.validation.annotation.Validated;
 public record AgentRunProperties(
     @NotNull @Valid Dispatch dispatch,
     @NotNull @Valid Lease lease,
-    @NotNull @DurationMax(hours = 2) Duration maxAllowedDuration,
+    @NotNull @DurationMax(hours = 3) Duration maxAllowedDuration,
     @Positive @Max(value = 10) long maxAttempts,
     @NotNull @Valid Executor executor,
     @NotNull @Valid Notifier notifier) {
