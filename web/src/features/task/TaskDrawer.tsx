@@ -22,6 +22,7 @@ import {
 import { COLUMN_TITLES } from "@/features/board/boardModel";
 import { useUsers } from "@/features/board/useBoard";
 import { relativeTime } from "@/features/inbox/relativeTime";
+import { ApprovalsSection } from "./ApprovalsSection";
 import { CommentsSection } from "./CommentsSection";
 import { DependencyPicker } from "./DependencyPicker";
 import { RunsSectionBody } from "./RunsSection";
@@ -84,7 +85,7 @@ function TaskBody({ task, onClose }: { task: Task; onClose: () => void }) {
 				</DrawerSection>
 				{/* Slots for later work: Comments (#18), Approvals (#20), Runs (#29). */}
 				<CommentsSection task={task} />
-				<div data-slot="task-drawer-sections" />
+				<ApprovalsSection task={task} />
 				<DrawerSection title="Runs">
 					<RunsSectionBody task={task} />
 				</DrawerSection>

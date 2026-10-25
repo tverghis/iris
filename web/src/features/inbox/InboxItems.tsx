@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { DecisionForm } from "@/features/approvals/DecisionForm";
+import { KIND_LABELS } from "@/features/approvals/decisions";
 import { relativeTime } from "./relativeTime";
 import { actorName } from "./useInbox";
 import { useAnswerQuestion, useDecideApproval } from "./useInboxMutations";
@@ -47,14 +49,7 @@ function ItemHeader({
 
 export function ApprovalCard({ item }: { item: ApprovalInboxItem }) {
 	const { approval } = item;
-	const [comment, setComment] = useState("");
 	const decide = useDecideApproval();
-	const commentId = useId();
-	const hintId = useId();
-	const needsComment = comment.trim() === "";
-
-	const submit = (decision: "approved" | "changes_requested" | "rejected") =>
-		decide.mutate({ item, decision, comment });
 
 	return (
 		<article className="space-y-3 rounded-lg border p-4">
@@ -62,7 +57,7 @@ export function ApprovalCard({ item }: { item: ApprovalInboxItem }) {
 				item={item}
 				by={actorName(approval.requestedBy)}
 				at={approval.createdAt}
-				badge={approval.kind === "sign_off" ? "Sign-off" : "Proceed"}
+				badge={KIND_LABELS[approval.kind]}
 			/>
 			<p className="break-words text-sm font-medium">{approval.summary}</p>
 			{approval.payloadMd && (
@@ -70,42 +65,11 @@ export function ApprovalCard({ item }: { item: ApprovalInboxItem }) {
 					{approval.payloadMd}
 				</pre>
 			)}
-			<div className="space-y-1.5">
-				<Label htmlFor={commentId}>Comment</Label>
-				<Textarea
-					id={commentId}
-					value={comment}
-					onChange={(event) => setComment(event.target.value)}
-					aria-describedby={hintId}
-					placeholder="Optional for approval"
-				/>
-				<p id={hintId} className="text-xs text-muted-foreground">
-					{needsComment
-						? "A comment is required to request changes or reject."
-						: " "}
-				</p>
-			</div>
-			<div className="flex flex-wrap gap-2">
-				<Button type="button" onClick={() => submit("approved")}>
-					Approve
-				</Button>
-				<Button
-					type="button"
-					variant="outline"
-					disabled={needsComment}
-					onClick={() => submit("changes_requested")}
-				>
-					Request changes
-				</Button>
-				<Button
-					type="button"
-					variant="outline"
-					disabled={needsComment}
-					onClick={() => submit("rejected")}
-				>
-					Reject
-				</Button>
-			</div>
+			<DecisionForm
+				onDecide={(decision, comment) =>
+					decide.mutate({ item, decision, comment })
+				}
+			/>
 		</article>
 	);
 }
