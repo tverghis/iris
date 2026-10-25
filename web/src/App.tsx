@@ -1,37 +1,18 @@
+import { QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
+import { createBrowserRouter } from "react-router";
+import { RouterProvider } from "react-router/dom";
+import { createQueryClient } from "@/api/queryClient";
+import { routes } from "./routes";
 
-type HealthStatus = "idle" | "checking" | "healthy" | "unavailable";
+const router = createBrowserRouter(routes);
 
 function App() {
-	const [healthStatus, setHealthStatus] = useState<HealthStatus>("idle");
-
-	async function checkHealth() {
-		setHealthStatus("checking");
-
-		try {
-			const response = await fetch("/healthz");
-			setHealthStatus(response.ok ? "healthy" : "unavailable");
-		} catch {
-			setHealthStatus("unavailable");
-		}
-	}
-
+	const [queryClient] = useState(createQueryClient);
 	return (
-		<main>
-			<h1>Welcome, Iris.</h1>
-			<button
-				type="button"
-				onClick={checkHealth}
-				disabled={healthStatus === "checking"}
-			>
-				Check health
-			</button>
-			<p role="status">
-				{healthStatus === "checking" && "Checking…"}
-				{healthStatus === "healthy" && "Healthy"}
-				{healthStatus === "unavailable" && "Unavailable"}
-			</p>
-		</main>
+		<QueryClientProvider client={queryClient}>
+			<RouterProvider router={router} />
+		</QueryClientProvider>
 	);
 }
 

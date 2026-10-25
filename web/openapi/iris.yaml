@@ -1,0 +1,1008 @@
+openapi: 3.1.0
+info:
+  title: Iris API
+  version: 0.1.0
+  description: |
+    DRAFT contract for the Iris HTTP API, written ahead of the backend. The web app and its MSW mock are built
+    against this document. Later the input of `npm run gen:api` switches to the backend's served OpenAPI document.
+
+    Conventions
+    - JSON bodies, camelCase property names, integer ids, ISO-8601 timestamps (UTC) as strings.
+    - Enums are lowercase snake strings, exactly as in the spec.
+    - Every request carries `X-Iris-User: <user id>` (the dev user switcher). The server uses it as the acting human.
+    - Errors are `{ "message": string }` with a 4xx status. Rejected lifecycle moves are 409 with a one-line,
+      human-readable message. Validation errors are 400, unknown ids are 404.
+    - Nullable fields are always present (value `null`); only request-body fields may be omitted.
+
+    Endpoints that the spec's HTTP API table does not list (added for the UI): `GET /api/users`,
+    `GET /api/dispatch/status`, `GET /api/questions`, `GET /api/projects/{id}/stream` (SSE),
+    `GET /api/tasks/{id}/approvals`.
+servers:
+  - url: /
+tags:
+  - name: users
+  - name: projects
+  - name: tasks
+  - name: comments
+  - name: notes
+  - name: approvals
+  - name: runs
+  - name: dispatch
+  - name: events
+security: []
+paths:
+  /api/users:
+    get:
+      tags: [users]
+      operationId: listUsers
+      summary: List users (NOT in the spec table; needed by the dev user switcher)
+      responses:
+        "200":
+          description: All users
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/User" }
+  /api/projects:
+    get:
+      tags: [projects]
+      operationId: listProjects
+      summary: List projects with counts
+      parameters:
+        - name: includeArchived
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Projects, most recently updated first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Project" }
+    post:
+      tags: [projects]
+      operationId: createProject
+      summary: Create a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProjectCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "400": { $ref: "#/components/responses/Error" }
+  /api/projects/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [projects]
+      operationId: getProject
+      responses:
+        "200":
+          description: The project
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [projects]
+      operationId: updateProject
+      summary: Update name, brief or archived flag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProjectPatch" }
+      responses:
+        "200":
+          description: Updated project
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Project" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/projects/{id}/board:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [projects]
+      operationId: getBoard
+      summary: Columns with task cards (always all six columns, in lifecycle order)
+      responses:
+        "200":
+          description: The board
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Board" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/projects/{id}/stream:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [projects]
+      operationId: streamProject
+      summary: Server-sent events for one project (NOT in the spec table)
+      description: |
+        `text/event-stream`. Each message has `data:` set to one JSON `StreamEvent`; the SSE `event:` field is
+        omitted so a plain `onmessage` handler receives everything. Task events carry the full `TaskCard`, so the
+        client patches that one task in the cache; it never refetches the whole board. `project.updated` carries
+        the project. `approval.*`, `comment.*` and `note.*` events carry only ids and mean "refetch that list".
+        The server may send `:` comment lines as keepalives. On reconnect the client refetches the board.
+        If SSE is unavailable the client polls the board every 15 seconds.
+      responses:
+        "200":
+          description: Event stream
+          content:
+            text/event-stream:
+              schema: { $ref: "#/components/schemas/StreamEvent" }
+  /api/projects/{id}/tasks:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      tags: [tasks]
+      operationId: createTask
+      summary: Create a task (placed at the bottom of its column)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/projects/{id}/notes:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [notes]
+      operationId: listNotes
+      summary: Notes, pinned first, then newest first
+      responses:
+        "200":
+          description: Notes
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Note" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [notes]
+      operationId: createNote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NoteCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Note" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/notes/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    patch:
+      tags: [notes]
+      operationId: updateNote
+      summary: Edit or pin a note
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NotePatch" }
+      responses:
+        "200":
+          description: Updated note
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Note" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [notes]
+      operationId: deleteNote
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/tasks/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [tasks]
+      operationId: getTask
+      responses:
+        "200":
+          description: The full task
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [tasks]
+      operationId: updateTask
+      summary: Edit a task (does not change status or position; use move). Resets attempts to 0.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TaskPatch" }
+      responses:
+        "200":
+          description: Updated task
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [tasks]
+      operationId: deleteTask
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/tasks/{id}/move:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      tags: [tasks]
+      operationId: moveTask
+      summary: Change column and position; applies lifecycle rules
+      description: |
+        Body is `{ status, afterTaskId }`: put the task in column `status`, directly below the task with id
+        `afterTaskId`; `null` puts it at the top. `afterTaskId` must be a task in that column (otherwise 400).
+        A drop onto a collapsed mobile column header sends `afterTaskId: null`.
+        Rejected moves answer 409 with a one-line message, e.g.
+        "Only the dispatcher can move an agent task into In Progress".
+        Returns the updated TaskCard.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MoveTask" }
+      responses:
+        "200":
+          description: Moved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskCard" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/tasks/{id}/deps:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      tags: [tasks]
+      operationId: addDependency
+      summary: Add a dependency (same project, no cycles, no self dependency)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DependencyAdd" }
+      responses:
+        "200":
+          description: The task with its updated dependency list
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/tasks/{id}/deps/{dependsOnId}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+      - name: dependsOnId
+        in: path
+        required: true
+        schema: { type: integer }
+    delete:
+      tags: [tasks]
+      operationId: removeDependency
+      responses:
+        "200":
+          description: The task with its updated dependency list
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/tasks/{id}/comments:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [comments]
+      operationId: listComments
+      summary: Thread, oldest first
+      responses:
+        "200":
+          description: Comments
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Comment" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [comments]
+      operationId: createComment
+      description: |
+        Lifecycle: a `question` moves the task to blocked. An `answer` must set `replyToId` to an open question;
+        it resolves the question and returns the task to ready (400 if `replyToId` is missing or not an open question).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CommentCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Comment" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/tasks/{id}/approvals:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [approvals]
+      operationId: listTaskApprovals
+      summary: Approval history of a task, newest first (NOT in the spec table)
+      responses:
+        "200":
+          description: Approvals
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Approval" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [approvals]
+      operationId: requestApproval
+      summary: A human requests an approval; the task moves to needs_approval
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApprovalCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Approval" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/tasks/{id}/runs:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [runs]
+      operationId: listTaskRuns
+      summary: Run history, newest first
+      responses:
+        "200":
+          description: Runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Run" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/approvals:
+    get:
+      tags: [approvals]
+      operationId: listApprovals
+      summary: Approvals inbox across projects, newest first
+      parameters:
+        - name: state
+          in: query
+          schema: { $ref: "#/components/schemas/ApprovalState" }
+        - name: approverUserId
+          in: query
+          description: Only approvals addressed to this user or to anyone (approverUserId null)
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Approvals with task and project
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ApprovalInboxItem" }
+  /api/approvals/{id}/decide:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      tags: [approvals]
+      operationId: decideApproval
+      description: |
+        Task destination: approved -> done (sign_off, payload becomes output) or ready (proceed);
+        changes_requested -> ready; rejected -> backlog. `comment` is required (400) for changes_requested and rejected.
+        409 if the approval is no longer pending.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApprovalDecision" }
+      responses:
+        "200":
+          description: The decided approval
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Approval" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/questions:
+    get:
+      tags: [comments]
+      operationId: listQuestions
+      summary: Questions across projects for the Needs you inbox (NOT in the spec table)
+      parameters:
+        - name: state
+          in: query
+          schema:
+            type: string
+            enum: [open, resolved]
+      responses:
+        "200":
+          description: Questions with task and project, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/QuestionInboxItem" }
+  /api/runs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [runs]
+      operationId: getRun
+      responses:
+        "200":
+          description: Run detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/runs/{id}/context:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [runs]
+      operationId: getRunContext
+      summary: The exact context served to the run
+      responses:
+        "200":
+          description: Assembled context as Markdown
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RunContext" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/runs/{id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      tags: [runs]
+      operationId: cancelRun
+      summary: Cancel a run and revoke its lease
+      responses:
+        "200":
+          description: The cancelled run
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+  /api/dispatch/run-now:
+    post:
+      tags: [dispatch]
+      operationId: runDispatcherNow
+      summary: Trigger a dispatcher tick
+      responses:
+        "200":
+          description: Dispatcher status after the tick was requested
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DispatchStatus" }
+  /api/dispatch/status:
+    get:
+      tags: [dispatch]
+      operationId: getDispatchStatus
+      summary: Current run or next tick time (NOT in the spec table)
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DispatchStatus" }
+  /api/events:
+    get:
+      tags: [events]
+      operationId: listEvents
+      summary: Activity log, newest first
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema: { type: integer }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 200 }
+      responses:
+        "200":
+          description: Events
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Event" }
+components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+  responses:
+    Error:
+      description: Error with a human-readable message
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string }
+    User:
+      type: object
+      required: [id, name, email]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string }
+    Actor:
+      type: object
+      description: Who did something. `userId` and `name` are set when kind is `user`.
+      required: [kind]
+      properties:
+        kind: { type: string, enum: [user, agent, system] }
+        userId: { type: integer }
+        name: { type: string }
+    TaskStatus:
+      type: string
+      enum: [backlog, ready, in_progress, needs_approval, blocked, done]
+    AssigneeKind:
+      type: string
+      enum: [none, human, agent]
+    ApprovalKind:
+      type: string
+      enum: [sign_off, proceed]
+    ApprovalState:
+      type: string
+      enum: [pending, approved, changes_requested, rejected, cancelled]
+    RunState:
+      type: string
+      enum: [running, succeeded, needs_human, failed, timed_out, cancelled]
+    CommentKind:
+      type: string
+      enum: [comment, question, answer]
+    Project:
+      type: object
+      required:
+        [
+          id,
+          name,
+          briefMd,
+          archivedAt,
+          createdAt,
+          updatedAt,
+          needsApprovalCount,
+          blockedCount,
+          agentRunning,
+        ]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        briefMd: { type: string }
+        archivedAt: { type: [string, "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        needsApprovalCount: { type: integer }
+        blockedCount: { type: integer }
+        agentRunning: { type: boolean }
+    ProjectCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+        briefMd: { type: string }
+    ProjectPatch:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        briefMd: { type: string }
+        archived: { type: boolean }
+    Board:
+      type: object
+      required: [project, columns]
+      properties:
+        project: { $ref: "#/components/schemas/Project" }
+        columns:
+          type: array
+          items: { $ref: "#/components/schemas/BoardColumn" }
+    BoardColumn:
+      type: object
+      required: [status, tasks]
+      properties:
+        status: { $ref: "#/components/schemas/TaskStatus" }
+        tasks:
+          type: array
+          description: Ordered by position ascending
+          items: { $ref: "#/components/schemas/TaskCard" }
+    PendingApprovalRef:
+      type: object
+      required: [id, kind, approverUserId]
+      properties:
+        id: { type: integer }
+        kind: { $ref: "#/components/schemas/ApprovalKind" }
+        approverUserId:
+          { type: [integer, "null"], description: "null = any human" }
+    TaskCard:
+      type: object
+      required:
+        [
+          id,
+          projectId,
+          title,
+          status,
+          position,
+          assigneeKind,
+          assigneeUserId,
+          waitingOn,
+          pendingApproval,
+          running,
+          requireSignOff,
+          doneAt,
+          updatedAt,
+        ]
+      properties:
+        id: { type: integer }
+        projectId: { type: integer }
+        title: { type: string }
+        status: { $ref: "#/components/schemas/TaskStatus" }
+        position:
+          {
+            type: number,
+            description: Ordering within the column. May be fractional.,
+          }
+        assigneeKind: { $ref: "#/components/schemas/AssigneeKind" }
+        assigneeUserId: { type: [integer, "null"] }
+        waitingOn:
+          { type: integer, description: Number of unfinished dependencies }
+        pendingApproval:
+          oneOf:
+            - $ref: "#/components/schemas/PendingApprovalRef"
+            - type: "null"
+        running:
+          { type: boolean, description: A run is in progress for this task }
+        requireSignOff: { type: boolean }
+        doneAt: { type: [string, "null"], format: date-time }
+        updatedAt: { type: string, format: date-time }
+    DependencyRef:
+      type: object
+      required: [id, title, status]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        status: { $ref: "#/components/schemas/TaskStatus" }
+    Task:
+      allOf:
+        - $ref: "#/components/schemas/TaskCard"
+        - type: object
+          required:
+            [
+              descriptionMd,
+              outputMd,
+              attempts,
+              dependencies,
+              createdBy,
+              createdAt,
+            ]
+          properties:
+            descriptionMd: { type: string }
+            outputMd: { type: string }
+            attempts: { type: integer }
+            dependencies:
+              type: array
+              items: { $ref: "#/components/schemas/DependencyRef" }
+            createdBy: { $ref: "#/components/schemas/Actor" }
+            createdAt: { type: string, format: date-time }
+    TaskCreate:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1 }
+        status:
+          allOf:
+            - $ref: "#/components/schemas/TaskStatus"
+          default: backlog
+          description: Only backlog and ready are accepted on create.
+        assigneeKind: { $ref: "#/components/schemas/AssigneeKind" }
+        assigneeUserId: { type: [integer, "null"] }
+        descriptionMd: { type: string }
+        requireSignOff:
+          { type: boolean, description: Defaults to true for agent tasks }
+    TaskPatch:
+      type: object
+      properties:
+        title: { type: string, minLength: 1 }
+        descriptionMd: { type: string }
+        outputMd: { type: string }
+        assigneeKind: { $ref: "#/components/schemas/AssigneeKind" }
+        assigneeUserId: { type: [integer, "null"] }
+        requireSignOff: { type: boolean }
+    MoveTask:
+      type: object
+      required: [status, afterTaskId]
+      properties:
+        status: { $ref: "#/components/schemas/TaskStatus" }
+        afterTaskId:
+          type: [integer, "null"]
+          description: Place directly after this task in the target column; null = top of the column.
+    DependencyAdd:
+      type: object
+      required: [dependsOnId]
+      properties:
+        dependsOnId: { type: integer }
+    Comment:
+      type: object
+      required:
+        [id, taskId, author, bodyMd, kind, replyToId, resolvedAt, createdAt]
+      properties:
+        id: { type: integer }
+        taskId: { type: integer }
+        author: { $ref: "#/components/schemas/Actor" }
+        bodyMd: { type: string }
+        kind: { $ref: "#/components/schemas/CommentKind" }
+        replyToId: { type: [integer, "null"] }
+        resolvedAt:
+          {
+            type: [string, "null"],
+            format: date-time,
+            description: Set on a question once answered,
+          }
+        createdAt: { type: string, format: date-time }
+    CommentCreate:
+      type: object
+      required: [bodyMd]
+      properties:
+        kind:
+          allOf:
+            - $ref: "#/components/schemas/CommentKind"
+          default: comment
+        bodyMd: { type: string, minLength: 1 }
+        replyToId: { type: [integer, "null"] }
+    Note:
+      type: object
+      required: [id, projectId, author, bodyMd, pinned, createdAt]
+      properties:
+        id: { type: integer }
+        projectId: { type: integer }
+        author: { $ref: "#/components/schemas/Actor" }
+        bodyMd: { type: string }
+        pinned: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    NoteCreate:
+      type: object
+      required: [bodyMd]
+      properties:
+        bodyMd: { type: string, minLength: 1 }
+        pinned: { type: boolean }
+    NotePatch:
+      type: object
+      properties:
+        bodyMd: { type: string, minLength: 1 }
+        pinned: { type: boolean }
+    Approval:
+      type: object
+      required:
+        [
+          id,
+          taskId,
+          runId,
+          kind,
+          requestedBy,
+          approverUserId,
+          summary,
+          payloadMd,
+          state,
+          decidedBy,
+          decisionComment,
+          createdAt,
+          decidedAt,
+        ]
+      properties:
+        id: { type: integer }
+        taskId: { type: integer }
+        runId: { type: [integer, "null"] }
+        kind: { $ref: "#/components/schemas/ApprovalKind" }
+        requestedBy: { $ref: "#/components/schemas/Actor" }
+        approverUserId:
+          { type: [integer, "null"], description: "null = any human" }
+        summary: { type: string }
+        payloadMd: { type: string }
+        state: { $ref: "#/components/schemas/ApprovalState" }
+        decidedBy:
+          oneOf:
+            - $ref: "#/components/schemas/Actor"
+            - type: "null"
+        decisionComment: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        decidedAt: { type: [string, "null"], format: date-time }
+    ApprovalCreate:
+      type: object
+      required: [kind, summary]
+      properties:
+        kind: { $ref: "#/components/schemas/ApprovalKind" }
+        summary: { type: string, minLength: 1 }
+        payloadMd: { type: string }
+        approverUserId: { type: [integer, "null"] }
+    ApprovalDecision:
+      type: object
+      required: [decision]
+      properties:
+        decision:
+          type: string
+          enum: [approved, changes_requested, rejected]
+        comment: { type: string }
+    TaskRef:
+      type: object
+      required: [id, title, status]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        status: { $ref: "#/components/schemas/TaskStatus" }
+    ProjectRef:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+    ApprovalInboxItem:
+      type: object
+      required: [approval, task, project]
+      properties:
+        approval: { $ref: "#/components/schemas/Approval" }
+        task: { $ref: "#/components/schemas/TaskRef" }
+        project: { $ref: "#/components/schemas/ProjectRef" }
+    QuestionInboxItem:
+      type: object
+      required: [question, task, project]
+      properties:
+        question: { $ref: "#/components/schemas/Comment" }
+        task: { $ref: "#/components/schemas/TaskRef" }
+        project: { $ref: "#/components/schemas/ProjectRef" }
+    Run:
+      type: object
+      required:
+        [
+          id,
+          taskId,
+          executor,
+          model,
+          state,
+          summary,
+          error,
+          costUsd,
+          logRef,
+          sessionRef,
+          startedAt,
+          endedAt,
+        ]
+      properties:
+        id: { type: integer }
+        taskId: { type: integer }
+        executor: { type: string }
+        model: { type: [string, "null"] }
+        state: { $ref: "#/components/schemas/RunState" }
+        summary: { type: [string, "null"] }
+        error: { type: [string, "null"] }
+        costUsd: { type: [number, "null"] }
+        logRef: { type: [string, "null"] }
+        sessionRef:
+          {
+            type: [string, "null"],
+            description: Executor (Hermes) session reference,
+          }
+        startedAt: { type: string, format: date-time }
+        endedAt: { type: [string, "null"], format: date-time }
+    RunContext:
+      type: object
+      required: [runId, contentMd]
+      properties:
+        runId: { type: integer }
+        contentMd:
+          { type: string, description: The exact context served to the run }
+    DispatchStatus:
+      type: object
+      required: [currentRun, nextTickAt]
+      properties:
+        currentRun:
+          oneOf:
+            - type: object
+              required: [runId, taskId, taskTitle, projectId, startedAt]
+              properties:
+                runId: { type: integer }
+                taskId: { type: integer }
+                taskTitle: { type: string }
+                projectId: { type: integer }
+                startedAt: { type: string, format: date-time }
+            - type: "null"
+        nextTickAt: { type: [string, "null"], format: date-time }
+    Event:
+      type: object
+      required: [id, projectId, taskId, actor, type, data, createdAt]
+      properties:
+        id: { type: integer }
+        projectId: { type: integer }
+        taskId: { type: [integer, "null"] }
+        actor: { $ref: "#/components/schemas/Actor" }
+        type:
+          {
+            type: string,
+            description: "e.g. task.created, task.moved, comment.created, approval.decided",
+          }
+        data: { type: object, additionalProperties: true }
+        createdAt: { type: string, format: date-time }
+    StreamEvent:
+      type: object
+      description: One SSE message `data` payload.
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum:
+            - task.created
+            - task.updated
+            - task.deleted
+            - project.updated
+            - comment.created
+            - approval.changed
+            - note.changed
+        task:
+          {
+            $ref: "#/components/schemas/TaskCard",
+            description: "Set for task.created and task.updated",
+          }
+        taskId:
+          {
+            type: integer,
+            description: "Set for task.*, comment.created and approval.changed",
+          }
+        project:
+          {
+            $ref: "#/components/schemas/Project",
+            description: "Set for project.updated",
+          }
