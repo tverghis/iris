@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import { Link, useSearchParams } from "wouter";
 import { ApiError } from "@/api/client";
 import { Button } from "@/components/ui/button";
+import { TaskDrawerMount } from "@/features/task/TaskDrawerMount";
 import { useCurrentUserId } from "@/lib/currentUser";
 import { BoardColumn } from "./BoardColumn";
 import { type BoardFilter, filterColumns, parseFilter } from "./boardModel";
@@ -114,6 +115,7 @@ export function BoardView({ projectId }: { projectId: number }) {
 					/>
 				))}
 			</div>
+			<TaskDrawerMount projectId={projectId} />
 		</div>
 	);
 }
