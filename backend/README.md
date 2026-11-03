@@ -18,6 +18,9 @@ The application listens on port `8080`. Request the welcome endpoint with:
 curl http://localhost:8080/
 ```
 
+SQLite defaults to `var/iris.db`, relative to the working directory. Missing parent directories
+are created at startup. Set `iris.database.path` to use a different database file.
+
 ## Verify
 
 ```sh
